@@ -3,25 +3,23 @@ import { supabase } from './supabaseClient';
 import { 
   BookOpen, FileText, CheckSquare, Info, Lock, LogOut, 
   Eye, EyeOff, Key, Plus, Trash2, Upload, Award, Users, 
-  ExternalLink, Maximize2, Minimize2, Sparkles, Wand2
+  ExternalLink, Maximize2, Minimize2, Sparkles, Wand2, 
+  Download, FileUp, CheckCircle2, Layers
 } from 'lucide-react';
 
 const GRADES = [10, 11, 12];
 
 // ============================================================================
-// BỘ ENGINE BẢNG VẼ TỐI ƯU CHUYÊN SÂU CHO MÁY TÍNH BẢNG (IPAD / ANDROID TABLET)
-// Tự động tiêm vào mọi file HTML cũ & mới
+// 1. ENGINE BẢNG VẼ CHUYÊN DỤNG CHO MÁY TÍNH BẢNG (CHỐNG TRÔI TRANG & TÌ TAY)
 // ============================================================================
 const TABLET_PRO_DRAWING_INJECTION = `
 <style>
-  /* Khóa chống giật, chống phóng to nhầm và chống bôi đen trên Tablet */
   html, body {
     overscroll-behavior: none !important;
     -webkit-touch-callout: none !important;
     -webkit-user-select: none !important;
     user-select: none !important;
   }
-  /* Khi bật bút vẽ: khóa cứng mặt giấy 100% để viết phân số, hình học không bị trôi trang */
   #drawing-canvas.drawing-active {
     pointer-events: auto !important;
     touch-action: none !important;
@@ -31,41 +29,38 @@ const TABLET_PRO_DRAWING_INJECTION = `
     pointer-events: none !important;
     touch-action: pan-y !important;
   }
-  /* Thanh công cụ nổi hỗ trợ nhanh cho Máy tính bảng */
   #tablet-quick-helper {
     position: fixed;
-    right: 12px;
+    right: 10px;
     top: 50%;
     transform: translateY(-50%);
     z-index: 9998;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    background: rgba(15, 23, 42, 0.92);
+    background: rgba(15, 23, 42, 0.94);
     backdrop-filter: blur(8px);
     padding: 6px;
     border-radius: 14px;
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.45);
   }
   .tb-quick-btn {
-    width: 38px;
-    height: 38px;
+    width: 40px;
+    height: 40px;
     border-radius: 10px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
     color: #e2e8f0;
     background: #1e293b;
     border: 1px solid #334155;
     transition: all 0.15s;
   }
-  .tb-quick-btn:active {
-    transform: scale(0.92);
-  }
+  .tb-quick-btn:active { transform: scale(0.92); }
   .tb-quick-btn.active-mode {
     background: #2563eb !important;
     color: #ffffff !important;
@@ -75,20 +70,17 @@ const TABLET_PRO_DRAWING_INJECTION = `
     font-size: 8px;
     line-height: 1;
     margin-top: 2px;
-    opacity: 0.85;
+    opacity: 0.9;
   }
 </style>
 <script>
   window.addEventListener('load', function() {
     const canvas = document.getElementById('drawing-canvas');
     const scrollBox = document.getElementById('slide-content-scroll');
-    const scrollInner = document.getElementById('slide-scroll-inner');
     if (!canvas || !scrollBox) return;
 
-    // Trạng thái Chống tì tay (Palm Rejection): Tự động kích hoạt khi phát hiện bút Stylus/Apple Pencil
     window.palmRejectionOnlyPen = false;
 
-    // Tạo cụm nút điều khiển nhanh bên mép phải màn hình máy tính bảng
     if (!document.getElementById('tablet-quick-helper')) {
       const helper = document.createElement('div');
       helper.id = 'tablet-quick-helper';
@@ -102,17 +94,17 @@ const TABLET_PRO_DRAWING_INJECTION = `
         <button id="qbtn-cursor" class="tb-quick-btn active-mode" title="Chế độ Cuộn trang & Bấm nút">
           <span>👆</span><span class="lbl">Cuộn</span>
         </button>
-        <button id="qbtn-palm" class="tb-quick-btn" title="Chống tì tay (Chỉ nhận Bút cảm ứng, bỏ qua bàn tay)">
+        <button id="qbtn-palm" class="tb-quick-btn" title="Chống tì tay (Chỉ nhận Bút cảm ứng)">
           <span>✋</span><span class="lbl">Chỉ Bút</span>
         </button>
         <div style="height:1px;background:#334155;margin:2px 0;"></div>
-        <button id="qbtn-up" class="tb-quick-btn" title="Cuộn lên mà không cần tắt bút">
+        <button id="qbtn-up" class="tb-quick-btn" title="Cuộn lên">
           <span>▲</span><span class="lbl">Lên</span>
         </button>
         <button id="qbtn-down" class="tb-quick-btn" title="Cuộn xuống viết tiếp">
           <span>▼</span><span class="lbl">Xuống</span>
         </button>
-        <button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác nét vừa viết">
+        <button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác">
           <span>↩️</span><span class="lbl">Lùi</span>
         </button>
       \`;
@@ -125,7 +117,6 @@ const TABLET_PRO_DRAWING_INJECTION = `
         });
       };
 
-      // Đồng bộ với hàm setDrawTool có sẵn trong file HTML
       if (typeof window.setDrawTool === 'function') {
         const origSetDrawTool = window.setDrawTool;
         window.setDrawTool = function(t) {
@@ -149,21 +140,15 @@ const TABLET_PRO_DRAWING_INJECTION = `
         window.palmRejectionOnlyPen = !window.palmRejectionOnlyPen;
         this.classList.toggle('active-mode', window.palmRejectionOnlyPen);
       };
-      document.getElementById('qbtn-up').onclick = () => {
-        scrollBox.scrollBy({ top: -220, behavior: 'smooth' });
-      };
-      document.getElementById('qbtn-down').onclick = () => {
-        scrollBox.scrollBy({ top: 220, behavior: 'smooth' });
-      };
+      document.getElementById('qbtn-up').onclick = () => scrollBox.scrollBy({ top: -220, behavior: 'smooth' });
+      document.getElementById('qbtn-down').onclick = () => scrollBox.scrollBy({ top: 220, behavior: 'smooth' });
       document.getElementById('qbtn-undo').onclick = () => {
         if (typeof window.undoLastStroke === 'function') window.undoLastStroke();
       };
     }
 
-    // Chặn sự kiện cuộn cảm ứng gây trôi trang khi đang dùng bút viết trên máy tính bảng
     canvas.addEventListener('touchstart', function(e) {
       if (typeof drawTool !== 'undefined' && drawTool !== 'cursor') {
-        // Nếu có từ 2 ngón tay trở lên chạm vào: Cho phép dùng 2 ngón tay để cuộn trang!
         if (e.touches && e.touches.length >= 2) {
           isPointerDown = false;
           currentStroke = null;
@@ -180,15 +165,12 @@ const TABLET_PRO_DRAWING_INJECTION = `
       }
     }, { passive: false });
 
-    // Lắng nghe ở pha Capture để lọc tì tay (Palm Rejection) trước khi vẽ
     canvas.addEventListener('pointerdown', function(e) {
-      // Nếu phát hiện bút Stylus (Apple Pencil / S-Pen), tự động ưu tiên bút
       if (e.pointerType === 'pen' && !window.palmRejectionOnlyPen) {
         window.palmRejectionOnlyPen = true;
         const palmBtn = document.getElementById('qbtn-palm');
         if (palmBtn) palmBtn.classList.add('active-mode');
       }
-      // Nếu đang bật chế độ Chỉ nhận Bút mà bàn tay chạm vào -> Bỏ qua nét vẽ đó
       if (window.palmRejectionOnlyPen && e.pointerType === 'touch') {
         e.stopImmediatePropagation();
         return;
@@ -206,78 +188,239 @@ const TABLET_PRO_DRAWING_INJECTION = `
 `;
 
 // ============================================================================
-// HÀM TỰ ĐỘNG TẠO SLIDE HTML ĐỒNG BỘ TỪ PDF / WORD / LATEX (TỐI ƯU TABLET)
+// 2. BỘ PHÂN TÍCH TỰ ĐỘNG (AUTO-PARSER) NHẬN DIỆN ĐỦ 4 DẠNG TỪ PDF / VĂN BẢN
+// - Lý thuyết ([LT] hoặc I. TÓM TẮT LÝ THUYẾT)
+// - Phần I: Trắc nghiệm 4 phương án A, B, C, D
+// - Phần II: Trắc nghiệm Đúng/Sai a), b), c), d)
+// - Phần III: Trả lời ngắn (Đáp số)
 // ============================================================================
-function generateStandardSlideHTML(lessonTitle, grade, rawText) {
-  const blocks = rawText.trim().split(/\n\s*\n/);
-  const slides = blocks.map((block, index) => {
-    const lines = block.trim().split('\n').map(l => l.trim()).filter(Boolean);
-    const firstLine = lines[0] || `Câu ${index + 1}.`;
-    
-    if (firstLine.toUpperCase().startsWith('[LT]')) {
-      return {
-        lesson: 1,
-        lessonTitle: lessonTitle.toUpperCase(),
-        part: "I. TÓM TẮT LÝ THUYẾT",
-        subRef: `Lý thuyết • Slide ${index + 1}`,
-        type: "theory",
-        label: "Lý thuyết",
-        prompt: firstLine.replace(/^\[LT\]\s*/i, ''),
-        theoryHtml: `<div class="bg-blue-50/80 border-l-4 border-blue-600 p-4 rounded-r-xl space-y-2 text-base sm:text-lg">${lines.slice(1).map(l => `<p>${l}</p>`).join('')}</div>`
-      };
+function parseSmartMathContentToSlides(lessonTitle, rawText) {
+  const slides = [];
+  const cleanTitle = (lessonTitle || 'BÀI GIẢNG TOÁN').toUpperCase();
+
+  // Tách bảng đáp án cuối đề nếu có (VD: 1.A 2.B 3.C...)
+  const answerKeyMap = {};
+  const keyMatches = rawText.matchAll(/\b(\d+)\s*[\.\-\:]\s*([A-D])\b/g);
+  for (const m of keyMatches) {
+    answerKeyMap[m[1]] = ['A', 'B', 'C', 'D'].indexOf(m[2].toUpperCase());
+  }
+
+  // Chia các khối theo từ khóa Câu 1, Câu 2... hoặc [LT]
+  const lines = rawText.replace(/\r\n/g, '\n').split('\n');
+  let currentPart = 'PHẦN I. CÂU TRẮC NGHIỆM';
+  let currentBlocks = [];
+  let tempBlock = [];
+
+  for (let rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Nhận diện tiêu đề chuyển Phần (Phần I, Phần II, Phần III, Lý thuyết)
+    if (/^(PHẦN\s*I\b|I\.\s*TRẮC NGHIỆM)/i.test(line) && !/PHẦN\s*II/i.test(line)) {
+      if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
+      currentPart = 'PHẦN I. CÂU TRẮC NGHIỆM';
+      continue;
+    }
+    if (/^(PHẦN\s*II\b|II\.\s*CÂU TRẮC NGHIỆM ĐÚNG SAI|PHẦN\s*2)/i.test(line) && !/PHẦN\s*III/i.test(line)) {
+      if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
+      currentPart = 'PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI';
+      continue;
+    }
+    if (/^(PHẦN\s*III\b|III\.\s*CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN|PHẦN\s*3)/i.test(line)) {
+      if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
+      currentPart = 'PHẦN III. CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN';
+      continue;
     }
 
-    let solution = "Xem hướng dẫn chi tiết của giáo viên.";
-    const contentLines = [];
-    lines.slice(1).forEach(line => {
-      if (/^(Lời giải|HD|Giải|=>):/i.test(line)) {
-        solution = line.replace(/^(Lời giải|HD|Giải|=>):\s*/i, '');
+    // Nhận diện bắt đầu một Slide Lý thuyết hoặc một Câu hỏi mới
+    if (/^(\[LT\]|LÝ THUYẾT:|TÓM TẮT LÝ THUYẾT)/i.test(line) || /^Câu\s+\d+[\.\:\)]/i.test(line)) {
+      if (tempBlock.length) {
+        currentBlocks.push({ part: currentPart, lines: tempBlock });
+      }
+      tempBlock = [line];
+    } else {
+      tempBlock.push(line);
+    }
+  }
+  if (tempBlock.length) {
+    currentBlocks.push({ part: currentPart, lines: tempBlock });
+  }
+
+  // Phân tích chi tiết từng Block thành đúng cấu trúc Slide của Thầy Vy
+  currentBlocks.forEach((blk, idx) => {
+    const bLines = blk.lines;
+    const headerLine = bLines[0];
+
+    // 1. DẠNG LÝ THUYẾT
+    if (/^(\[LT\]|LÝ THUYẾT:|TÓM TẮT LÝ THUYẾT)/i.test(headerLine)) {
+      const titlePrompt = headerLine.replace(/^(\[LT\]|LÝ THUYẾT:)\s*/i, '') || `${cleanTitle} — TÓM TẮT LÝ THUYẾT`;
+      const bodyParagraphs = bLines.slice(1).map(l => `<p>• ${l.replace(/^[•\-\+]\s*/, '')}</p>`).join('');
+      slides.push({
+        lesson: 1,
+        lessonTitle: cleanTitle,
+        part: 'I. TÓM TẮT LÝ THUYẾT',
+        subRef: `Lý thuyết • Slide ${idx + 1}`,
+        type: 'theory',
+        label: 'Lý thuyết',
+        prompt: titlePrompt,
+        theoryHtml: `
+          <div class="bg-blue-50/80 border-l-4 border-blue-600 p-5 rounded-r-xl space-y-2 text-base sm:text-xl leading-relaxed">
+            ${bodyParagraphs || '<p>Nội dung tóm tắt lý thuyết trọng tâm.</p>'}
+          </div>
+        `
+      });
+      return;
+    }
+
+    // Tách nhãn "Câu X." và nội dung đề
+    const qMatch = headerLine.match(/^(Câu\s+(\d+)[\.\:\)]?)\s*(.*)/i);
+    const qLabel = qMatch ? `Câu ${qMatch[2]}.` : `Câu ${idx + 1}.`;
+    const qNum = qMatch ? qMatch[2] : `${idx + 1}`;
+    let promptLines = [qMatch ? qMatch[3] : headerLine];
+    let solutionLines = [];
+    let bodyLines = [];
+    let inSolution = false;
+
+    for (let i = 1; i < bLines.length; i++) {
+      const l = bLines[i];
+      if (/^(Lời giải|HD|Hướng dẫn|Giải|=>)\s*[\:\.]?/i.test(l)) {
+        inSolution = true;
+        const cleanedSol = l.replace(/^(Lời giải|HD|Hướng dẫn|Giải|=>)\s*[\:\.]?\s*/i, '');
+        if (cleanedSol) solutionLines.push(cleanedSol);
+        continue;
+      }
+      if (inSolution) {
+        solutionLines.push(l);
       } else {
-        contentLines.push(line);
+        bodyLines.push(l);
+      }
+    }
+
+    // Tách các phương án nếu viết trên cùng 1 dòng (VD: A. ... B. ... C. ... D. ...)
+    const expandedBodyLines = [];
+    bodyLines.forEach(line => {
+      if (/(?:^|\s)\*?[A-D]\.\s+/.test(line) && (line.match(/(?:^|\s)\*?[A-D]\.\s+/g) || []).length > 1) {
+        const parts = line.split(/(?=(?:^|\s)\*?[A-D]\.\s+)/).map(s => s.trim()).filter(Boolean);
+        expandedBodyLines.push(...parts);
+      } else {
+        expandedBodyLines.push(line);
       }
     });
 
-    if (contentLines.length === 1 && /^Đáp số:/i.test(contentLines[0])) {
-      return {
-        lesson: 1,
-        lessonTitle: lessonTitle.toUpperCase(),
-        part: "PHẦN III. TRẢ LỜI NGẮN",
-        subRef: `Câu ${index + 1}`,
-        type: "short",
-        label: `Câu ${index + 1}.`,
-        prompt: firstLine.replace(/^Câu\s*\d+[\.:]?\s*/i, ''),
-        shortAnswer: contentLines[0].replace(/^Đáp số:\s*/i, ''),
-        solution
-      };
-    }
+    // Kiểm tra xem có các mệnh đề a), b), c), d) (Dạng ĐÚNG/SAI) hay không
+    const tfStatements = [];
+    const mcqOptions = [];
+    let detectedCorrectIdx = answerKeyMap[qNum] !== undefined ? answerKeyMap[qNum] : 0;
+    let shortAnsValue = '';
 
-    let correctIndex = 0;
-    const options = contentLines.slice(0, 4).map((opt, idx) => {
-      const isCorrect = opt.startsWith('*');
-      if (isCorrect) correctIndex = idx;
-      return opt.replace(/^\*/, '').replace(/^[A-D][\.\)]\s*/i, '').trim();
+    expandedBodyLines.forEach(line => {
+      // Nhận diện mệnh đề a), b), c), d)
+      const tfMatch = line.match(/^(\*?)([a-d])\)\s*(.*)/i);
+      const mcqMatch = line.match(/^(\*?)([A-D])[\.\)]\s*(.*)/);
+      const shortMatch = line.match(/^(Đáp số|ĐS|KQ|Kết quả)\s*[\:\=]\s*(.*)/i);
+
+      if (tfMatch) {
+        const hasStar = tfMatch[1] === '*';
+        let stText = tfMatch[3];
+        let isTrue = hasStar;
+        if (/\[(Đ|Đúng|True)\]\s*$/i.test(stText)) {
+          isTrue = true;
+          stText = stText.replace(/\[(Đ|Đúng|True)\]\s*$/i, '').trim();
+        } else if (/\[(S|Sai|False)\]\s*$/i.test(stText)) {
+          isTrue = false;
+          stText = stText.replace(/\[(S|Sai|False)\]\s*$/i, '').trim();
+        }
+        tfStatements.push({
+          label: `${tfMatch[2].toLowerCase()})`,
+          text: stText,
+          isTrue
+        });
+      } else if (mcqMatch) {
+        const optIdx = ['A', 'B', 'C', 'D'].indexOf(mcqMatch[2].toUpperCase());
+        if (mcqMatch[1] === '*') detectedCorrectIdx = optIdx;
+        mcqOptions.push(mcqMatch[3].trim());
+      } else if (shortMatch) {
+        shortAnsValue = shortMatch[2].trim();
+      } else if (tfStatements.length === 0 && mcqOptions.length === 0) {
+        promptLines.push(line);
+      }
     });
 
-    return {
+    const fullPrompt = promptLines.filter(Boolean).join(' ');
+    const fullSolution = solutionLines.length > 0 
+      ? solutionLines.join('<br>') 
+      : 'Áp dụng kiến thức trọng tâm đã học để suy ra kết quả.';
+
+    // 2. DẠNG ĐÚNG / SAI (PHẦN II)
+    if (tfStatements.length >= 2 || blk.part.includes('PHẦN II')) {
+      const finalStatements = tfStatements.length > 0 ? tfStatements : [
+        { label: 'a)', text: 'Mệnh đề a', isTrue: true },
+        { label: 'b)', text: 'Mệnh đề b', isTrue: false },
+        { label: 'c)', text: 'Mệnh đề c', isTrue: true },
+        { label: 'd)', text: 'Mệnh đề d', isTrue: false },
+      ];
+      const summaryTF = finalStatements.map(s => `<strong>${s.label} ${s.isTrue ? 'ĐÚNG' : 'SAI'}</strong>`).join(' &nbsp;|&nbsp; ');
+      slides.push({
+        lesson: 1,
+        lessonTitle: cleanTitle,
+        part: 'PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI',
+        subRef: `${qLabel} / Phần II`,
+        type: 'tf',
+        label: qLabel,
+        prompt: fullPrompt,
+        statements: finalStatements,
+        solution: solutionLines.length > 0 ? `${summaryTF}<br>${fullSolution}` : summaryTF
+      });
+      return;
+    }
+
+    // 3. DẠNG TRẢ LỜI NGẮN (PHẦN III)
+    if (shortAnsValue || (mcqOptions.length === 0 && blk.part.includes('PHẦN III'))) {
+      slides.push({
+        lesson: 1,
+        lessonTitle: cleanTitle,
+        part: 'PHẦN III. CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN',
+        subRef: `${qLabel} / Phần III`,
+        type: 'short',
+        label: qLabel,
+        prompt: fullPrompt,
+        shortAnswer: shortAnsValue || 'Xem lời giải',
+        solution: fullSolution
+      });
+      return;
+    }
+
+    // 4. DẠNG TRẮC NGHIỆM 4 PHƯƠNG ÁN (PHẦN I)
+    while (mcqOptions.length < 4) {
+      mcqOptions.push(`Phương án ${['A', 'B', 'C', 'D'][mcqOptions.length]}`);
+    }
+    slides.push({
       lesson: 1,
-      lessonTitle: lessonTitle.toUpperCase(),
-      part: "BÀI TẬP RÈN LUYỆN",
-      subRef: `Câu ${index + 1} / ${blocks.length}`,
-      type: "mcq",
-      label: `Câu ${index + 1}.`,
-      prompt: firstLine.replace(/^Câu\s*\d+[\.:]?\s*/i, ''),
-      options: options.length ? options : ["Phương án A", "Phương án B", "Phương án C", "Phương án D"],
-      correctIndex,
-      solution
-    };
+      lessonTitle: cleanTitle,
+      part: 'PHẦN I. CÂU TRẮC NGHIỆM',
+      subRef: `${qLabel} / Phần I`,
+      type: 'mcq',
+      label: qLabel,
+      prompt: fullPrompt,
+      options: mcqOptions.slice(0, 4),
+      correctIndex: detectedCorrectIdx,
+      solution: fullSolution
+    });
   });
 
+  return slides;
+}
+
+// ============================================================================
+// 3. HÀM XUẤT FILE HTML HOÀN CHỈNH Y HỆT FORM "bai tap vecto.html" CỦA THẦY VY
+// ============================================================================
+function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
   return `<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>TOÁN ${grade} | ${lessonTitle}</title>
+  <title>TOÁN ${grade} | ${lessonTitle} — Toán Thầy Vy</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
@@ -286,68 +429,112 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { font-family: 'Inter', sans-serif; background-color: #0b1120; color: #0f172a; overflow: hidden; user-select: none; }
-    .katex { font-size: 1.08em !important; }
+    .slide-scroll::-webkit-scrollbar { width: 10px; }
+    .slide-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+    .slide-scroll::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; }
+    .katex { font-size: 1.1em !important; }
     #drawing-canvas.drawing-active { pointer-events: auto; touch-action: none; cursor: crosshair; }
     #drawing-canvas.drawing-inactive { pointer-events: none; touch-action: pan-y; }
     .tool-active { background-color: #2563eb !important; color: #fff !important; box-shadow: 0 0 0 2px #60a5fa; }
+    .color-dot-active { transform: scale(1.22); box-shadow: 0 0 0 2px #0f172a, 0 0 0 3.5px #ffffff; }
   </style>
 </head>
 <body class="h-screen w-screen flex flex-col justify-between bg-[#0b1120]">
-  <header class="bg-[#111827] border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-2 z-40 shrink-0">
-    <div class="flex items-center gap-2">
-      <span class="bg-[#2563eb] text-white font-extrabold text-xs px-2 py-0.5 rounded uppercase">TOÁN ${grade}</span>
-      <span class="text-white font-bold text-xs sm:text-sm truncate">${lessonTitle}</span>
+  <header class="bg-[#111827] border-b border-slate-800 px-2.5 py-1 flex items-center justify-between gap-2 z-40 shrink-0 min-h-[42px] overflow-x-auto">
+    <div class="flex items-center gap-2 shrink-0">
+      <span class="bg-[#2563eb] text-white font-extrabold text-[11px] px-2 py-0.5 rounded uppercase">TOÁN ${grade}</span>
+      <span class="text-white font-bold text-xs sm:text-sm truncate max-w-[240px] sm:max-w-md">${lessonTitle}</span>
     </div>
-    <div id="drawing-toolbar" class="flex items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
+
+    <div id="drawing-toolbar" class="hidden items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700 shrink-0">
       <button id="tool-cursor" onclick="setDrawTool('cursor')" class="tool-active px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">👆 Chuột</button>
       <button id="tool-pen" onclick="setDrawTool('pen')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">✏️ Bút</button>
+      <button id="tool-highlighter" onclick="setDrawTool('highlighter')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">🖍️</button>
       <button id="tool-eraser" onclick="setDrawTool('eraser')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">🧹 Tẩy</button>
-      <button onclick="undoLastStroke()" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">↩️</button>
-      <button onclick="clearCurrentSlideDrawing()" class="px-2 py-0.5 rounded bg-rose-900 text-rose-100 text-xs font-semibold">🗑️</button>
+      <div class="flex items-center gap-1.5 px-1">
+        <button onclick="setPenColor('#ef4444', this)" class="color-btn color-dot-active w-3.5 h-3.5 rounded-full bg-[#ef4444]"></button>
+        <button onclick="setPenColor('#2563eb', this)" class="color-btn w-3.5 h-3.5 rounded-full bg-[#2563eb]"></button>
+        <button onclick="setPenColor('#10b981', this)" class="color-btn w-3.5 h-3.5 rounded-full bg-[#10b981]"></button>
+      </div>
+      <button onclick="undoLastStroke()" class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 text-xs">↩️</button>
+      <button onclick="clearCurrentSlideDrawing()" class="px-2 py-0.5 rounded bg-rose-900 text-rose-100 text-xs">🗑️</button>
+    </div>
+
+    <div class="flex items-center gap-1.5 shrink-0">
+      <button onclick="toggleDrawToolbar()" class="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 px-2.5 py-1 rounded-md text-xs font-semibold">
+        <span>✏️ Bảng vẽ</span>
+      </button>
+      <button onclick="openSlideListModal()" class="flex items-center gap-1 bg-[#1f2937] hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-md text-xs font-semibold">
+        <span>☰ Mục lục (${slidesArray.length})</span>
+      </button>
     </div>
   </header>
-  <div class="w-full h-[2px] bg-slate-800 shrink-0"><div id="progress-bar" class="h-full bg-gradient-to-r from-blue-500 to-amber-400 transition-all" style="width:1%"></div></div>
+
+  <div class="w-full h-[2px] bg-slate-800 shrink-0 z-40">
+    <div id="progress-bar" class="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-amber-400 transition-all duration-300" style="width: 1%;"></div>
+  </div>
+
   <main class="relative flex-1 w-full min-h-0 overflow-hidden flex items-stretch justify-center p-1 sm:p-1.5">
-    <div id="slide-card" class="relative w-full h-full bg-white rounded-[12px] shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
-      <div id="slide-content-scroll" class="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-        <div id="slide-scroll-inner" class="relative w-full min-h-full px-4 py-4 sm:px-7 sm:py-5 flex flex-col">
-          <div class="mb-2.5 flex items-center justify-between gap-2">
-            <span id="part-badge" class="bg-[#eff6ff] text-[#2563eb] border border-[#bfdbfe] font-bold text-xs px-3 py-0.5 rounded-full"></span>
-            <span id="sub-ref-badge" class="text-xs font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full"></span>
+    <div id="slide-card" class="relative w-full h-full bg-white rounded-[12px] sm:rounded-[14px] shadow-2xl border border-slate-200 flex flex-col justify-start overflow-hidden">
+      <div id="slide-content-scroll" class="slide-scroll relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+        <div id="slide-scroll-inner" class="relative w-full min-h-full px-5 py-4 sm:px-8 sm:py-6 flex flex-col justify-start">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2 shrink-0 relative z-20 pointer-events-none">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="lesson-badge" class="inline-block bg-amber-500 text-slate-950 font-extrabold text-xs sm:text-sm px-3 py-1 rounded-full uppercase"></span>
+              <span id="part-badge" class="inline-block bg-[#eff6ff] text-[#2563eb] border border-[#bfdbfe] font-bold text-xs sm:text-sm px-3.5 py-1 rounded-full"></span>
+            </div>
+            <span id="sub-ref-badge" class="text-xs sm:text-sm font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full"></span>
           </div>
-          <div class="flex flex-col md:flex-row md:items-start gap-3 mb-4 relative z-20">
-            <button id="question-btn" onclick="toggleSolution()" class="shrink-0 bg-[#2563eb] hover:bg-[#1d4ed8] text-white px-3.5 py-2 rounded-xl shadow flex items-center gap-2 self-start">
-              <span id="question-number-label" class="text-lg sm:text-xl font-extrabold">Câu 1.</span>
-              <span id="reveal-btn-badge" class="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded">Ẩn/Hiện đáp án</span>
+
+          <div class="flex flex-col md:flex-row md:items-start gap-3.5 sm:gap-5 mb-5 shrink-0 relative z-20">
+            <button id="question-btn" onclick="toggleSolution()" class="shrink-0 bg-[#2563eb] hover:bg-[#1d4ed8] active:scale-95 text-white px-4 py-2.5 rounded-[12px] shadow-md flex items-center gap-2.5 transition cursor-pointer self-start">
+              <span id="question-number-label" class="text-xl sm:text-2xl font-extrabold tracking-tight">Câu 1.</span>
+              <span id="reveal-btn-badge" class="bg-white/20 text-white text-xs sm:text-sm font-semibold px-2.5 py-0.5 rounded-md">Ẩn/Hiện đáp án</span>
             </button>
-            <div id="question-text" class="text-slate-900 font-bold text-lg sm:text-2xl leading-snug flex-1 pt-0.5"></div>
+            <div id="question-text" class="text-slate-900 font-bold text-xl sm:text-2xl lg:text-[26px] leading-snug flex-1 pt-0.5"></div>
           </div>
+
           <div id="options-container" class="w-full relative z-20"></div>
-          <div id="solution-container" class="hidden mt-4 pt-3 border-t-2 border-dashed border-slate-200 relative z-20">
-            <div class="bg-emerald-50/95 border-l-4 border-emerald-500 rounded-r-xl p-4 shadow-sm">
-              <div class="flex items-center gap-2 text-emerald-800 font-extrabold text-sm sm:text-base mb-1">
+
+          <div id="solution-container" class="hidden mt-5 pt-4 border-t-2 border-dashed border-slate-200 shrink-0 relative z-20">
+            <div class="bg-emerald-50/95 border-l-4 border-emerald-500 rounded-r-xl p-4 sm:p-5 shadow-sm">
+              <div class="flex items-center gap-2.5 text-emerald-800 font-extrabold text-base sm:text-lg mb-1.5">
                 <span>✅ ĐÁP ÁN GỌN NHẸ</span>
-                <span id="solution-answer-tag" class="bg-emerald-600 text-white text-xs px-2 py-0.5 rounded font-bold"></span>
+                <span id="solution-answer-tag" class="bg-emerald-600 text-white text-xs sm:text-sm px-2.5 py-0.5 rounded font-bold"></span>
               </div>
-              <div id="solution-text" class="text-slate-800 text-base sm:text-lg font-medium"></div>
+              <div id="solution-text" class="text-slate-800 text-base sm:text-xl leading-relaxed space-y-1.5 font-medium"></div>
             </div>
           </div>
+
           <div class="h-36 shrink-0"></div>
           <canvas id="drawing-canvas" class="drawing-inactive absolute top-0 left-0 z-30"></canvas>
         </div>
       </div>
     </div>
   </main>
-  <footer class="bg-[#0b1120] border-t border-slate-800 px-3 py-1 flex items-center justify-between gap-2 z-40 shrink-0">
-    <button id="prev-btn" onclick="prevSlide()" class="bg-[#172554] hover:bg-[#1e3a8a] text-slate-200 font-bold text-xs px-3 py-1 rounded-lg">◀ Slide trước</button>
-    <span id="footer-slide-counter" class="text-white font-bold text-xs"></span>
-    <button id="next-btn" onclick="nextSlide()" class="bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-xs px-3 py-1 rounded-lg">Slide tiếp ▶</button>
+
+  <footer class="bg-[#0b1120] border-t border-slate-800/80 px-3 sm:px-5 py-1 flex items-center justify-between gap-2 z-40 shrink-0 min-h-[38px]">
+    <button id="prev-btn" onclick="prevSlide()" class="bg-[#172554] hover:bg-[#1e3a8a] text-slate-200 font-bold text-xs sm:text-sm px-3.5 py-1 rounded-lg">◀ Slide trước</button>
+    <span id="footer-slide-counter" class="text-white font-bold text-xs sm:text-sm"></span>
+    <button id="next-btn" onclick="nextSlide()" class="bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-xs sm:text-sm px-3.5 py-1 rounded-lg">Slide tiếp ▶</button>
   </footer>
+
+  <div id="slide-list-modal" class="fixed inset-0 bg-slate-950/80 z-50 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+      <div class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+        <h2 class="text-white font-bold text-base sm:text-lg">Mục lục bài giảng (${slidesArray.length} Slide)</h2>
+        <button onclick="closeSlideListModal()" class="text-slate-400 hover:text-white bg-slate-800 w-8 h-8 rounded-lg font-bold">✕</button>
+      </div>
+      <div id="modal-questions-grid" class="p-4 overflow-y-auto grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2"></div>
+    </div>
+  </div>
+
   <script>
-    const SLIDES = ${JSON.stringify(slides)};
+    const SLIDES = ${JSON.stringify(slidesArray)};
     let currentSlideIndex = 0;
     let revealedSlides = new Array(SLIDES.length).fill(false);
     let userMCQChoice = new Array(SLIDES.length).fill(null);
+    let userTFChoices = SLIDES.map(() => ({}));
     let slideDrawings = SLIDES.map(() => []);
     let currentStroke = null, drawTool = 'cursor', penColor = '#ef4444', baseStrokeWidth = 2.8, isPointerDown = false;
 
@@ -371,7 +558,7 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
 
     function setDrawTool(tool) {
       drawTool = tool;
-      ['cursor', 'pen', 'eraser'].forEach(t => {
+      ['cursor', 'pen', 'highlighter', 'eraser'].forEach(t => {
         const el = document.getElementById('tool-' + t);
         if (el) el.classList.toggle('tool-active', t === tool);
       });
@@ -380,6 +567,25 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
       } else {
         canvas.classList.replace('drawing-inactive', 'drawing-active');
       }
+    }
+
+    function setPenColor(color, btnEl) {
+      penColor = color;
+      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('color-dot-active'));
+      if (btnEl) btnEl.classList.add('color-dot-active');
+      if (drawTool === 'cursor' || drawTool === 'eraser') setDrawTool('pen');
+    }
+
+    function toggleDrawToolbar() {
+      const bar = document.getElementById('drawing-toolbar');
+      if (bar.classList.contains('hidden')) {
+        bar.classList.replace('hidden', 'flex');
+        setDrawTool('pen');
+      } else {
+        bar.classList.replace('flex', 'hidden');
+        setDrawTool('cursor');
+      }
+      resizeCanvas();
     }
 
     function getRelativePoint(e) {
@@ -391,7 +597,12 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
       if (drawTool === 'cursor') return;
       canvas.setPointerCapture(e.pointerId);
       isPointerDown = true;
-      currentStroke = { tool: drawTool, color: penColor, width: drawTool === 'eraser' ? 22 : baseStrokeWidth, points: [getRelativePoint(e)] };
+      currentStroke = {
+        tool: drawTool,
+        color: penColor,
+        width: drawTool === 'highlighter' ? 14 : (drawTool === 'eraser' ? 22 : baseStrokeWidth),
+        points: [getRelativePoint(e)]
+      };
       slideDrawings[currentSlideIndex].push(currentStroke);
       redrawCanvas();
     });
@@ -415,8 +626,18 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.lineWidth = st.width;
-        ctx.globalCompositeOperation = st.tool === 'eraser' ? 'destination-out' : 'source-over';
-        ctx.strokeStyle = st.tool === 'eraser' ? 'rgba(0,0,0,1)' : st.color;
+        if (st.tool === 'eraser') {
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.strokeStyle = 'rgba(0,0,0,1)';
+        } else if (st.tool === 'highlighter') {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 0.32;
+          ctx.strokeStyle = st.color;
+        } else {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1.0;
+          ctx.strokeStyle = st.color;
+        }
         ctx.beginPath();
         ctx.moveTo(st.points[0].x, st.points[0].y);
         for (let i = 1; i < st.points.length - 1; i++) {
@@ -430,13 +651,20 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
     function undoLastStroke() { slideDrawings[currentSlideIndex].pop(); redrawCanvas(); }
     function clearCurrentSlideDrawing() { slideDrawings[currentSlideIndex] = []; redrawCanvas(); }
 
+    function selectTFChoice(idx, val) {
+      userTFChoices[currentSlideIndex][idx] = val;
+      renderSlide();
+    }
+
     function renderSlide() {
       const q = SLIDES[currentSlideIndex];
       const isRevealed = revealedSlides[currentSlideIndex];
       document.getElementById('progress-bar').style.width = ((currentSlideIndex + 1) / SLIDES.length * 100) + '%';
+      document.getElementById('lesson-badge').textContent = q.lessonTitle;
       document.getElementById('part-badge').textContent = q.part;
       document.getElementById('sub-ref-badge').textContent = q.subRef;
-      document.getElementById('footer-slide-counter').textContent = 'Slide ' + (currentSlideIndex + 1) + ' / ' + SLIDES.length;
+      document.getElementById('footer-slide-counter').textContent = 'Slide ' + (currentSlideIndex + 1) + ' / ' + SLIDES.length + ' (' + q.subRef + ')';
+
       const qBtn = document.getElementById('question-btn');
       const qText = document.getElementById('question-text');
       const optBox = document.getElementById('options-container');
@@ -457,12 +685,12 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
         if (q.type === 'mcq') {
           const letters = ['A', 'B', 'C', 'D'];
           const grid = document.createElement('div');
-          grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-3';
+          grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4';
           q.options.forEach((optText, idx) => {
             const isSelected = userMCQChoice[currentSlideIndex] === idx;
             const isCorrect = q.correctIndex === idx;
-            let cls = 'bg-white border-2 border-slate-200 hover:border-blue-400 text-slate-900';
-            let badge = 'bg-slate-100 text-slate-800';
+            let cls = 'bg-white border-2 border-[#e2e8f0] hover:border-blue-400 text-slate-900';
+            let badge = 'bg-[#f1f5f9] text-slate-800';
             if (isRevealed) {
               if (isCorrect) { cls = 'bg-[#dcfce7] border-2 border-[#22c55e] text-emerald-950'; badge = 'bg-[#22c55e] text-white'; }
               else if (isSelected) { cls = 'bg-rose-50 border-2 border-rose-400 text-rose-900'; badge = 'bg-rose-500 text-white'; }
@@ -470,32 +698,74 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
               cls = 'bg-blue-50 border-2 border-blue-500 text-blue-950'; badge = 'bg-blue-600 text-white';
             }
             const btn = document.createElement('button');
-            btn.className = 'w-full px-4 py-3 rounded-xl flex items-center gap-3 text-left ' + cls;
+            btn.className = 'w-full px-4 py-3.5 rounded-xl flex items-center gap-3.5 text-left ' + cls;
             btn.onclick = () => { userMCQChoice[currentSlideIndex] = idx; revealedSlides[currentSlideIndex] = true; renderSlide(); };
-            btn.innerHTML = '<span class="w-8 h-8 rounded-full font-extrabold flex items-center justify-center shrink-0 ' + badge + '">' + letters[idx] + '</span><span class="text-base sm:text-lg font-semibold flex-1">' + optText + '</span>';
+            btn.innerHTML = '<span class="w-9 h-9 rounded-full font-extrabold text-base sm:text-lg flex items-center justify-center shrink-0 ' + badge + '">' + letters[idx] + '</span><span class="text-lg sm:text-xl font-semibold flex-1">' + optText + '</span>';
             grid.appendChild(btn);
           });
           optBox.appendChild(grid);
+        } else if (q.type === 'tf') {
+          const tableDiv = document.createElement('div');
+          tableDiv.className = 'bg-slate-50 border-2 border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-200';
+          (q.statements || []).forEach((st, idx) => {
+            const userChoice = userTFChoices[currentSlideIndex][idx];
+            const row = document.createElement('div');
+            row.className = 'px-4 py-3.5 flex items-center justify-between gap-3 bg-white';
+            let trueCls = 'bg-slate-100 text-slate-700 border-slate-300', falseCls = 'bg-slate-100 text-slate-700 border-slate-300';
+            if (isRevealed) {
+              if (st.isTrue) trueCls = 'bg-emerald-600 text-white border-emerald-600';
+              else falseCls = 'bg-rose-600 text-white border-rose-600';
+            } else {
+              if (userChoice === true) trueCls = 'bg-blue-600 text-white border-blue-600';
+              if (userChoice === false) falseCls = 'bg-blue-600 text-white border-blue-600';
+            }
+            row.innerHTML = '<div class="flex items-start gap-3 flex-1"><span class="font-extrabold text-blue-600 text-lg sm:text-xl">' + st.label + '</span><div class="text-slate-900 font-semibold text-lg sm:text-xl">' + st.text + '</div></div><div class="flex gap-2 shrink-0"><button onclick="selectTFChoice(' + idx + ', true)" class="px-4 py-1.5 rounded-lg font-bold text-xs sm:text-sm border ' + trueCls + '">ĐÚNG</button><button onclick="selectTFChoice(' + idx + ', false)" class="px-4 py-1.5 rounded-lg font-bold text-xs sm:text-sm border ' + falseCls + '">SAI</button></div>';
+            tableDiv.appendChild(row);
+          });
+          optBox.appendChild(tableDiv);
         } else if (q.type === 'short') {
-          optBox.innerHTML = '<div class="bg-slate-50 border-2 border-slate-200 rounded-xl p-5 flex items-center justify-between"><span class="font-semibold">Đáp số câu hỏi:</span><span class="px-5 py-2 rounded-xl border-2 font-extrabold text-xl ' + (isRevealed ? 'bg-emerald-100 border-emerald-500 text-emerald-900' : 'bg-white text-slate-400') + '">' + (isRevealed ? q.shortAnswer : '?') + '</span></div>';
+          optBox.innerHTML = '<div class="bg-slate-50 border-2 border-slate-200 rounded-xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"><div class="text-slate-700 font-semibold text-lg sm:text-xl">Bấm vào nút <strong>"' + q.label + ' Ấn xem đáp án"</strong> để hiện kết quả:</div><div class="px-6 py-3 rounded-xl border-2 font-extrabold text-xl sm:text-2xl ' + (isRevealed ? 'bg-emerald-100 border-emerald-500 text-emerald-900' : 'bg-white border-slate-300 text-slate-400') + '">' + (isRevealed ? ('Đáp số: ' + q.shortAnswer) : 'Đáp số: ?') + '</div></div>';
         }
 
         if (isRevealed) {
           solBox.classList.remove('hidden');
           document.getElementById('solution-text').innerHTML = q.solution;
-          document.getElementById('solution-answer-tag').textContent = q.type === 'mcq' ? ('Chọn ' + ['A','B','C','D'][q.correctIndex]) : ('Đáp số: ' + q.shortAnswer);
+          if (q.type === 'mcq') document.getElementById('solution-answer-tag').textContent = 'Chọn ' + ['A','B','C','D'][q.correctIndex];
+          else if (q.type === 'short') document.getElementById('solution-answer-tag').textContent = 'Đáp số: ' + q.shortAnswer;
+          else document.getElementById('solution-answer-tag').textContent = 'Đáp án Đúng/Sai';
         } else {
           solBox.classList.add('hidden');
         }
       }
+
       if (window.renderMathInElement) {
         renderMathInElement(document.getElementById('slide-card'), { delimiters: [{left: "$$", right: "$$", display: true}, {left: "$", right: "$", display: false}], throwOnError: false });
       }
       setTimeout(resizeCanvas, 30);
     }
-    function toggleSolution() { revealedSlides[currentSlideIndex] = !revealedSlides[currentSlideIndex]; renderSlide(); }
+
+    function toggleSolution() {
+      if (SLIDES[currentSlideIndex].type === 'theory') return;
+      revealedSlides[currentSlideIndex] = !revealedSlides[currentSlideIndex];
+      renderSlide();
+    }
     function prevSlide() { if (currentSlideIndex > 0) { currentSlideIndex--; renderSlide(); } }
     function nextSlide() { if (currentSlideIndex < SLIDES.length - 1) { currentSlideIndex++; renderSlide(); } }
+    function openSlideListModal() {
+      const grid = document.getElementById('modal-questions-grid');
+      grid.innerHTML = '';
+      SLIDES.forEach((s, i) => {
+        const b = document.createElement('button');
+        b.className = 'p-2 rounded-lg border text-left text-xs font-bold ' + (i === currentSlideIndex ? 'bg-blue-600 text-white border-blue-400' : 'bg-slate-800 text-slate-200 border-slate-700');
+        b.innerHTML = '<div>' + s.label + '</div><div class="text-[10px] opacity-75 truncate">' + s.part + '</div>';
+        b.onclick = () => { currentSlideIndex = i; closeSlideListModal(); renderSlide(); };
+        grid.appendChild(b);
+      });
+      document.getElementById('slide-list-modal').classList.replace('hidden', 'flex');
+    }
+    function closeSlideListModal() {
+      document.getElementById('slide-list-modal').classList.replace('flex', 'hidden');
+    }
     window.onload = renderSlide;
   </script>
 </body>
@@ -526,9 +796,40 @@ export default function App() {
   const [newTitle, setNewTitle] = useState('');
   const [driveInput, setDriveInput] = useState('');
   const [htmlContentInput, setHtmlContentInput] = useState('');
-  const [showGeneratorModal, setShowGeneratorModal] = useState(false);
-  const [rawSlideBuilderText, setRawSlideBuilderText] = useState('');
 
+  // State cho Tab 5: Chuyển PDF ➔ Slide HTML
+  const [converterTitle, setConverterTitle] = useState('');
+  const [converterRawText, setConverterRawText] = useState(
+`[LT] BÀI 1. KHÁI NIỆM VECTƠ — TÓM TẮT LÝ THUYẾT
+Vectơ là một đoạn thẳng có hướng (đã chỉ ra điểm đầu và điểm cuối).
+Hai vectơ cùng phương nếu giá của chúng song song hoặc trùng nhau.
+Hai vectơ bằng nhau nếu chúng cùng hướng và cùng độ dài: $\\vec{a} = \\vec{b}$.
+
+PHẦN I. CÂU TRẮC NGHIỆM
+Câu 1. Cho biểu thức $\\overrightarrow{AB} = \\overrightarrow{AC} \\neq \\vec{0}$. Khi đó:
+A. Tam giác ABC là tam giác cân.
+B. Tam giác ABC là tam giác đều.
+C. Điểm A là trung điểm đoạn thẳng BC.
+*D. Điểm B trùng với điểm C.
+Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cuối phải trùng nhau $\\Rightarrow B \\equiv C$.
+
+PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI
+Câu 1. Cho hình vuông $ABCD$ có tâm $O$. Xét tính đúng sai:
+*a) $\\overrightarrow{AO}$ bằng với $\\overrightarrow{OC}$.
+b) $\\overrightarrow{OA}$ bằng với $\\overrightarrow{OB}$.
+*c) $|\\overrightarrow{AC}|$ bằng với $|\\overrightarrow{BD}|$.
+d) $\\overrightarrow{DA}$ bằng với $\\overrightarrow{BC}$.
+Lời giải: O là trung điểm AC nên a) Đúng; hai đường chéo bằng nhau nên c) Đúng.
+
+PHẦN III. CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN
+Câu 1. Cho hình vuông $ABCD$ có tâm $O$ và $AB = 2$ thì $|\\overrightarrow{OA}|$ bằng bao nhiêu?
+Đáp số: 1,41
+Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\sqrt{2} \\approx 1,41$.`
+  );
+  const [parsedPreviewSlides, setParsedPreviewSlides] = useState([]);
+  const [isExtractingPdf, setIsExtractingPdf] = useState(false);
+
+  // State Làm bài tập & Xem điểm (Tab 3)
   const [activeExercise, setActiveExercise] = useState(null);
   const [studentName, setStudentName] = useState('');
   const [studentClass, setStudentClass] = useState('');
@@ -550,6 +851,12 @@ export default function App() {
   useEffect(() => {
     fetchData();
   }, [selectedGrade, isTeacher]);
+
+  // Tự động cập nhật bản xem trước Slide khi văn bản trong Tab 5 thay đổi
+  useEffect(() => {
+    const slides = parseSmartMathContentToSlides(converterTitle || 'CHUYÊN ĐỀ TOÁN', converterRawText);
+    setParsedPreviewSlides(slides);
+  }, [converterTitle, converterRawText]);
 
   async function fetchData() {
     const { data: lessonData } = await supabase
@@ -601,6 +908,84 @@ export default function App() {
     else setShowLoginModal(false);
   };
 
+  // ================= ĐỌC TRỰC TIẾP FILE PDF SANG CẤU TRÚC SLIDE (TAB 5) =================
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!converterTitle) {
+      setConverterTitle(file.name.replace(/\.pdf$/i, ''));
+    }
+    if (!window.pdfjsLib) {
+      return alert('Đang tải thư viện đọc PDF, vui lòng thử lại sau 2 giây!');
+    }
+
+    setIsExtractingPdf(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullExtractedText = '';
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        let lastY = null;
+        let pageLines = '';
+
+        for (const item of textContent.items) {
+          const currentY = Math.round(item.transform[5]);
+          if (lastY !== null && Math.abs(currentY - lastY) > 6) {
+            pageLines += '\n';
+          } else if (lastY !== null) {
+            pageLines += ' ';
+          }
+          pageLines += item.str;
+          lastY = currentY;
+        }
+        fullExtractedText += pageLines + '\n\n';
+      }
+
+      setConverterRawText(fullExtractedText.trim());
+    } catch (err) {
+      alert('Không thể đọc file PDF này: ' + err.message);
+    } finally {
+      setIsExtractingPdf(false);
+    }
+  };
+
+  const handleSaveConvertedToLessons = async () => {
+    if (!converterTitle.trim()) return alert('Vui lòng nhập Tên bài giảng trước khi lưu!');
+    const fullHtml = buildFullStandaloneHTML(converterTitle, selectedGrade, parsedPreviewSlides);
+    const { error } = await supabase.from('lessons').insert([{
+      title: converterTitle.trim(),
+      grade: selectedGrade,
+      drive_file_id: '',
+      html_cache: fullHtml,
+      is_active: true,
+      show_answers: false
+    }]);
+
+    if (error) {
+      alert('Lỗi lưu bài giảng: ' + error.message);
+    } else {
+      alert(`Đã tạo thành công ${parsedPreviewSlides.length} Slide vào Khối ${selectedGrade}!`);
+      await fetchData();
+      setActiveTab('lessons');
+    }
+  };
+
+  const handleDownloadConvertedHtml = () => {
+    const title = converterTitle.trim() || `Bai-giang-Toan-${selectedGrade}`;
+    const fullHtml = buildFullStandaloneHTML(title, selectedGrade, parsedPreviewSlides);
+    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ================= XỬ LÝ TAB 1: BÀI HỌC HTML =================
   const handleFileUploadHTML = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -613,7 +998,7 @@ export default function App() {
   const addLesson = async () => {
     if (!newTitle) return alert('Vui lòng nhập tên bài học!');
     if (!htmlContentInput && !driveInput) {
-      return alert('Vui lòng chọn file .html hoặc dùng Trình tạo Slide!');
+      return alert('Vui lòng chọn file .html hoặc dùng Tab 5 (Chuyển PDF ➔ Slide)!');
     }
     const fileId = extractDriveId(driveInput);
 
@@ -626,36 +1011,11 @@ export default function App() {
       show_answers: false
     }]);
 
-    if (error) {
-      alert('Lỗi khi lưu bài học: ' + error.message);
-    } else {
+    if (!error) {
       setNewTitle('');
       setDriveInput('');
       setHtmlContentInput('');
       fetchData();
-    }
-  };
-
-  const createSyncLessonFromBuilder = async () => {
-    if (!newTitle || !rawSlideBuilderText.trim()) {
-      return alert('Vui lòng nhập Tên bài giảng và Nội dung câu hỏi!');
-    }
-    const generatedHtml = generateStandardSlideHTML(newTitle, selectedGrade, rawSlideBuilderText);
-    const { error } = await supabase.from('lessons').insert([{
-      title: newTitle,
-      grade: selectedGrade,
-      drive_file_id: '',
-      html_cache: generatedHtml,
-      is_active: true,
-      show_answers: false
-    }]);
-    if (!error) {
-      setNewTitle('');
-      setRawSlideBuilderText('');
-      setShowGeneratorModal(false);
-      fetchData();
-    } else {
-      alert('Lỗi tạo bài học: ' + error.message);
     }
   };
 
@@ -668,9 +1028,6 @@ export default function App() {
     }
   };
 
-  // ============================================================================
-  // KẾT HỢP ENGINE BẢNG VẼ TABLET + CƠ CHẾ KHÓA/MỞ ĐÁP ÁN TỪ XA
-  // ============================================================================
   const getRenderedHtml = (lesson) => {
     if (!lesson?.html_cache) return '';
 
@@ -709,6 +1066,7 @@ export default function App() {
     return lesson.html_cache + fullInjectedCode;
   };
 
+  // ================= XỬ LÝ TAB 2 & TAB 3 =================
   const addDocument = async () => {
     if (!newTitle || !driveInput) return alert('Nhập tên tài liệu và Link Google Drive!');
     const fileId = extractDriveId(driveInput);
@@ -797,9 +1155,17 @@ export default function App() {
     setSubmittedScore({ score: finalScore, correct: correctCount, total: questions.length });
   };
 
+  const navTabs = [
+    { id: 'lessons', label: '1. Bài học Slide', icon: BookOpen },
+    { id: 'documents', label: '2. Tài liệu', icon: FileText },
+    { id: 'exercises', label: '3. Bài tập', icon: CheckSquare },
+    { id: 'info', label: '4. Thông tin', icon: Info },
+    ...(isTeacher ? [{ id: 'converter', label: '✨ 5. Chuyển PDF ➔ Slide', icon: Wand2 }] : []),
+  ];
+
   return (
     <div className="min-h-screen bg-[#0f172a] pb-16 md:pb-2 font-sans text-slate-800 flex flex-col">
-      {/* HEADER GỌN GÀNG */}
+      {/* HEADER */}
       <header className="bg-[#111827] border-b border-slate-800 text-white shadow-md sticky top-0 z-30">
         <div className="max-w-[1600px] mx-auto px-3 py-1.5 flex items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
@@ -807,19 +1173,16 @@ export default function App() {
               TOÁN THẦY VY
             </span>
             <div className="hidden md:flex items-center space-x-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700">
-              {[
-                { id: 'lessons', label: '1. Bài học Slide', icon: BookOpen },
-                { id: 'documents', label: '2. Tài liệu', icon: FileText },
-                { id: 'exercises', label: '3. Bài tập', icon: CheckSquare },
-                { id: 'info', label: '4. Thông tin', icon: Info },
-              ].map((t) => {
+              {navTabs.map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
                     key={t.id}
                     onClick={() => setActiveTab(t.id)}
                     className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg font-bold text-xs transition ${
-                      activeTab === t.id ? 'bg-[#2563eb] text-white shadow' : 'text-slate-300 hover:bg-slate-700'
+                      activeTab === t.id 
+                        ? (t.id === 'converter' ? 'bg-amber-500 text-slate-950 shadow' : 'bg-[#2563eb] text-white shadow') 
+                        : 'text-slate-300 hover:bg-slate-700'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -891,10 +1254,10 @@ export default function App() {
                         <Plus className="w-3.5 h-3.5" /> Thêm Bài Giảng (Khối {selectedGrade})
                       </h3>
                       <button
-                        onClick={() => setShowGeneratorModal(true)}
+                        onClick={() => setActiveTab('converter')}
                         className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] px-2 py-1 rounded-md shadow"
                       >
-                        <Wand2 className="w-3 h-3" /> Tạo từ PDF/Text
+                        <Wand2 className="w-3 h-3" /> Chuyển từ PDF
                       </button>
                     </div>
                     <input
@@ -906,7 +1269,7 @@ export default function App() {
                     />
                     <label className="flex items-center justify-center gap-1.5 w-full py-2 px-2 border border-dashed border-blue-400/60 bg-blue-950/40 rounded-lg text-xs font-semibold text-blue-300 cursor-pointer hover:bg-blue-900/40 transition">
                       <Upload className="w-3.5 h-3.5" />
-                      <span className="truncate">{htmlContentInput ? '✓ Đã nạp file HTML!' : 'Chọn file .html (Chuẩn Thầy Vy)'}</span>
+                      <span className="truncate">{htmlContentInput ? '✓ Đã nạp file HTML!' : 'Chọn file .html có sẵn'}</span>
                       <input type="file" accept=".html,.htm" onChange={handleFileUploadHTML} className="hidden" />
                     </label>
                     <button
@@ -1009,6 +1372,116 @@ export default function App() {
                   Chọn một bài giảng bên trái để bắt đầu trình chiếu.
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ==================== TAB 5: CHUYỂN PDF ➔ SLIDE HTML CHUẨN FORM THẦY VY ==================== */}
+        {activeTab === 'converter' && isTeacher && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
+            {/* Cột trái: Tải file PDF & Soạn thảo tự động nhận diện */}
+            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col space-y-3 text-white">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div>
+                  <h2 className="font-extrabold text-amber-400 text-sm sm:text-base flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4" /> Chuyển PDF / Đề Toán ➔ Slide HTML
+                  </h2>
+                  <p className="text-[11px] text-slate-400">
+                    Tự động nhận diện Lý thuyết, Phần I (ABCD), Phần II (Đúng/Sai), Phần III (Trả lời ngắn)
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  placeholder="Tên bài giảng (VD: Chương V - Vectơ)"
+                  value={converterTitle}
+                  onChange={(e) => setConverterTitle(e.target.value)}
+                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs sm:text-sm text-white font-semibold"
+                />
+
+                <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 border border-dashed border-blue-400 rounded-xl text-xs font-bold text-blue-300 cursor-pointer transition">
+                  <FileUp className="w-4 h-4" />
+                  <span>{isExtractingPdf ? 'Đang quét PDF...' : '1. Chọn file PDF từ máy'}</span>
+                  <input type="file" accept=".pdf" onChange={handlePdfUpload} className="hidden" />
+                </label>
+              </div>
+
+              {/* Thống kê số lượng từng dạng câu hỏi đã nhận diện */}
+              <div className="grid grid-cols-4 gap-1.5 bg-slate-950 p-2 rounded-xl border border-slate-800 text-center">
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-1.5">
+                  <div className="text-xs font-extrabold text-amber-400">
+                    {parsedPreviewSlides.filter(s => s.type === 'theory').length}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Lý thuyết</div>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-1.5">
+                  <div className="text-xs font-extrabold text-blue-400">
+                    {parsedPreviewSlides.filter(s => s.type === 'mcq').length}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Trắc nghiệm</div>
+                </div>
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-1.5">
+                  <div className="text-xs font-extrabold text-emerald-400">
+                    {parsedPreviewSlides.filter(s => s.type === 'tf').length}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Đúng / Sai</div>
+                </div>
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-1.5">
+                  <div className="text-xs font-extrabold text-purple-400">
+                    {parsedPreviewSlides.filter(s => s.type === 'short').length}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Trả lời ngắn</div>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-400 bg-slate-800/70 px-3 py-2 rounded-xl space-y-0.5">
+                <p>💡 <strong>Quy ước tự động nhận diện:</strong></p>
+                <p>• <strong>Lý thuyết:</strong> Dòng đầu có <code className="text-amber-300">[LT] Tiêu đề</code></p>
+                <p>• <strong>Trắc nghiệm / Đúng sai:</strong> Đặt dấu <code className="text-emerald-400">*</code> trước đáp án đúng (<code className="text-emerald-400">*A.</code> hoặc <code className="text-emerald-400">*a)</code>) hoặc có bảng đáp án <code className="text-emerald-400">1.A 2.B</code> ở cuối.</p>
+                <p>• <strong>Trả lời ngắn:</strong> Có dòng <code className="text-purple-300">Đáp số: ...</code> &nbsp;|&nbsp; <strong>Giải:</strong> Có dòng <code className="text-blue-300">Lời giải: ...</code></p>
+              </div>
+
+              <textarea
+                value={converterRawText}
+                onChange={(e) => setConverterRawText(e.target.value)}
+                rows={14}
+                className="w-full flex-1 p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-100 leading-relaxed"
+                placeholder="Nội dung quét từ PDF hoặc dán từ Word/LaTeX sẽ hiển thị tại đây để bạn kiểm tra..."
+              />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={handleSaveConvertedToLessons}
+                  className="flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold py-2.5 px-4 rounded-xl text-xs sm:text-sm shadow-lg"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Lưu vào Bài học (Khối {selectedGrade})
+                </button>
+                <button
+                  onClick={handleDownloadConvertedHtml}
+                  className="flex items-center justify-center gap-1.5 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 px-4 rounded-xl text-xs sm:text-sm shadow-lg"
+                >
+                  <Download className="w-4 h-4" /> Tải file .html về máy
+                </button>
+              </div>
+            </div>
+
+            {/* Cột phải: Bản xem trước trực tiếp (Live Preview) đúng chuẩn Slide Thầy Vy */}
+            <div className="lg:col-span-7 flex flex-col">
+              <div className="bg-[#0b1120] rounded-2xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-64px)]">
+                <div className="bg-slate-900 px-3 py-1.5 border-b border-slate-800 flex items-center justify-between text-xs text-slate-300">
+                  <span className="font-bold flex items-center gap-1.5 text-emerald-400">
+                    <Layers className="w-3.5 h-3.5" /> Xem trước Slide trực tiếp ({parsedPreviewSlides.length} Slide) — Có thể bấm thử đáp án & Bảng vẽ
+                  </span>
+                </div>
+                <iframe
+                  srcDoc={buildFullStandaloneHTML(converterTitle || 'BÀI GIẢNG TOÁN', selectedGrade, parsedPreviewSlides)}
+                  title="Preview Slide"
+                  className="w-full flex-1 border-0"
+                  sandbox="allow-scripts allow-same-origin"
+                />
+              </div>
             </div>
           </div>
         )}
@@ -1324,79 +1797,24 @@ export default function App() {
         )}
       </main>
 
-      {/* THANH NAVIGATION DƯỚI ĐÁY MÀN HÌNH DÀNH CHO ĐIỆN THOẠI */}
+      {/* THANH NAVIGATION DƯỚI ĐÁY MÀN HÌNH DÀNH CHO ĐIỆN THOẠI / TABLET NHỎ */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#111827] border-t border-slate-800 flex justify-around py-2 z-30 shadow-lg">
-        {[
-          { id: 'lessons', label: 'Bài học', icon: BookOpen },
-          { id: 'documents', label: 'Tài liệu', icon: FileText },
-          { id: 'exercises', label: 'Bài tập', icon: CheckSquare },
-          { id: 'info', label: 'Thông tin', icon: Info },
-        ].map((t) => {
+        {navTabs.map((t) => {
           const Icon = t.icon;
           return (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`flex flex-col items-center space-y-1 text-xs font-medium ${
+              className={`flex flex-col items-center space-y-1 text-[11px] font-medium ${
                 activeTab === t.id ? 'text-amber-400 font-bold' : 'text-slate-400'
               }`}
             >
               <Icon className="w-5 h-5" />
-              <span>{t.label}</span>
+              <span>{t.label.replace(/^\d+\.\s*|✨\s*\d+\.\s*/g, '')}</span>
             </button>
           );
         })}
       </nav>
-
-      {/* MODAL TRÌNH TẠO SLIDE ĐỒNG BỘ TỪ PDF / TEXT / LATEX */}
-      {showGeneratorModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 z-50">
-          <div className="bg-slate-900 border border-slate-700 text-white rounded-2xl p-5 w-full max-w-3xl space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="font-extrabold text-base sm:text-lg text-amber-400 flex items-center gap-2">
-                  <Sparkles className="w-5 h-5" /> Trình Tạo Slide HTML Đồng Bộ (Tối ưu viết Bảng trên Máy tính bảng)
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Copy nội dung từ PDF / Word / LaTeX dán vào đây — Tự động đóng gói Slide có KaTeX, Bảng vẽ Chống tì tay và Khóa/Mở đáp án.
-                </p>
-              </div>
-              <button onClick={() => setShowGeneratorModal(false)} className="text-slate-400 hover:text-white text-lg font-bold px-2">✕</button>
-            </div>
-
-            <input
-              type="text"
-              placeholder="Tên bài giảng (VD: Chương V - Bài 1: Khái niệm Vectơ)"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              className="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white"
-            />
-
-            <textarea
-              rows={10}
-              placeholder={`Mỗi slide cách nhau 1 dòng trống. Hỗ trợ đầy đủ công thức Toán $...$:\n\n[LT] BÀI 1. KHÁI NIỆM VECTƠ\n• Vectơ là một đoạn thẳng có hướng.\n• Hai vectơ bằng nhau nếu cùng hướng và cùng độ dài.\n\nCâu 1. Cho biểu thức $\\overrightarrow{AB} = \\overrightarrow{AC} \\neq \\vec{0}$. Khi đó:\nA. Tam giác ABC cân.\nB. Tam giác ABC đều.\nC. A là trung điểm BC.\n*D. Điểm B trùng với điểm C.\nLời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cuối phải trùng nhau.`}
-              value={rawSlideBuilderText}
-              onChange={(e) => setRawSlideBuilderText(e.target.value)}
-              className="w-full p-3.5 bg-slate-950 border border-slate-700 rounded-xl text-xs sm:text-sm font-mono text-slate-100"
-            />
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowGeneratorModal(false)}
-                className="px-4 py-2 rounded-xl text-xs sm:text-sm bg-slate-800 text-slate-300"
-              >
-                Đóng
-              </button>
-              <button
-                onClick={createSyncLessonFromBuilder}
-                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold px-5 py-2 rounded-xl text-xs sm:text-sm shadow-lg"
-              >
-                ⚡ Tạo Slide & Lưu Ngay
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* MODAL ĐĂNG NHẬP GIÁO VIÊN */}
       {showLoginModal && (
