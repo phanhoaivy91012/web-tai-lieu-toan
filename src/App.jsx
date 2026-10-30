@@ -9,7 +9,204 @@ import {
 const GRADES = [10, 11, 12];
 
 // ============================================================================
-// HÀM TỰ ĐỘNG CHUYỂN VĂN BẢN (COPY TỪ PDF / WORD / LATEX) SANG SLIDE CHUẨN THẦY VY
+// BỘ ENGINE BẢNG VẼ TỐI ƯU CHUYÊN SÂU CHO MÁY TÍNH BẢNG (IPAD / ANDROID TABLET)
+// Tự động tiêm vào mọi file HTML cũ & mới
+// ============================================================================
+const TABLET_PRO_DRAWING_INJECTION = `
+<style>
+  /* Khóa chống giật, chống phóng to nhầm và chống bôi đen trên Tablet */
+  html, body {
+    overscroll-behavior: none !important;
+    -webkit-touch-callout: none !important;
+    -webkit-user-select: none !important;
+    user-select: none !important;
+  }
+  /* Khi bật bút vẽ: khóa cứng mặt giấy 100% để viết phân số, hình học không bị trôi trang */
+  #drawing-canvas.drawing-active {
+    pointer-events: auto !important;
+    touch-action: none !important;
+    cursor: crosshair !important;
+  }
+  #drawing-canvas.drawing-inactive {
+    pointer-events: none !important;
+    touch-action: pan-y !important;
+  }
+  /* Thanh công cụ nổi hỗ trợ nhanh cho Máy tính bảng */
+  #tablet-quick-helper {
+    position: fixed;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 9998;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(8px);
+    padding: 6px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+  }
+  .tb-quick-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #e2e8f0;
+    background: #1e293b;
+    border: 1px solid #334155;
+    transition: all 0.15s;
+  }
+  .tb-quick-btn:active {
+    transform: scale(0.92);
+  }
+  .tb-quick-btn.active-mode {
+    background: #2563eb !important;
+    color: #ffffff !important;
+    border-color: #60a5fa !important;
+  }
+  .tb-quick-btn span.lbl {
+    font-size: 8px;
+    line-height: 1;
+    margin-top: 2px;
+    opacity: 0.85;
+  }
+</style>
+<script>
+  window.addEventListener('load', function() {
+    const canvas = document.getElementById('drawing-canvas');
+    const scrollBox = document.getElementById('slide-content-scroll');
+    const scrollInner = document.getElementById('slide-scroll-inner');
+    if (!canvas || !scrollBox) return;
+
+    // Trạng thái Chống tì tay (Palm Rejection): Tự động kích hoạt khi phát hiện bút Stylus/Apple Pencil
+    window.palmRejectionOnlyPen = false;
+
+    // Tạo cụm nút điều khiển nhanh bên mép phải màn hình máy tính bảng
+    if (!document.getElementById('tablet-quick-helper')) {
+      const helper = document.createElement('div');
+      helper.id = 'tablet-quick-helper';
+      helper.innerHTML = \`
+        <button id="qbtn-pen" class="tb-quick-btn" title="Bút viết bảng">
+          <span>✏️</span><span class="lbl">Bút</span>
+        </button>
+        <button id="qbtn-eraser" class="tb-quick-btn" title="Tẩy nét">
+          <span>🧹</span><span class="lbl">Tẩy</span>
+        </button>
+        <button id="qbtn-cursor" class="tb-quick-btn active-mode" title="Chế độ Cuộn trang & Bấm nút">
+          <span>👆</span><span class="lbl">Cuộn</span>
+        </button>
+        <button id="qbtn-palm" class="tb-quick-btn" title="Chống tì tay (Chỉ nhận Bút cảm ứng, bỏ qua bàn tay)">
+          <span>✋</span><span class="lbl">Chỉ Bút</span>
+        </button>
+        <div style="height:1px;background:#334155;margin:2px 0;"></div>
+        <button id="qbtn-up" class="tb-quick-btn" title="Cuộn lên mà không cần tắt bút">
+          <span>▲</span><span class="lbl">Lên</span>
+        </button>
+        <button id="qbtn-down" class="tb-quick-btn" title="Cuộn xuống viết tiếp">
+          <span>▼</span><span class="lbl">Xuống</span>
+        </button>
+        <button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác nét vừa viết">
+          <span>↩️</span><span class="lbl">Lùi</span>
+        </button>
+      \`;
+      document.body.appendChild(helper);
+
+      const syncQuickHighlight = (tool) => {
+        ['pen', 'eraser', 'cursor'].forEach(t => {
+          const btn = document.getElementById('qbtn-' + t);
+          if (btn) btn.classList.toggle('active-mode', t === tool);
+        });
+      };
+
+      // Đồng bộ với hàm setDrawTool có sẵn trong file HTML
+      if (typeof window.setDrawTool === 'function') {
+        const origSetDrawTool = window.setDrawTool;
+        window.setDrawTool = function(t) {
+          origSetDrawTool(t);
+          syncQuickHighlight(t);
+        };
+      }
+
+      document.getElementById('qbtn-pen').onclick = () => {
+        const bar = document.getElementById('drawing-toolbar');
+        if (bar && bar.classList.contains('hidden')) bar.classList.replace('hidden', 'flex');
+        if (typeof window.setDrawTool === 'function') window.setDrawTool('pen');
+      };
+      document.getElementById('qbtn-eraser').onclick = () => {
+        if (typeof window.setDrawTool === 'function') window.setDrawTool('eraser');
+      };
+      document.getElementById('qbtn-cursor').onclick = () => {
+        if (typeof window.setDrawTool === 'function') window.setDrawTool('cursor');
+      };
+      document.getElementById('qbtn-palm').onclick = function() {
+        window.palmRejectionOnlyPen = !window.palmRejectionOnlyPen;
+        this.classList.toggle('active-mode', window.palmRejectionOnlyPen);
+      };
+      document.getElementById('qbtn-up').onclick = () => {
+        scrollBox.scrollBy({ top: -220, behavior: 'smooth' });
+      };
+      document.getElementById('qbtn-down').onclick = () => {
+        scrollBox.scrollBy({ top: 220, behavior: 'smooth' });
+      };
+      document.getElementById('qbtn-undo').onclick = () => {
+        if (typeof window.undoLastStroke === 'function') window.undoLastStroke();
+      };
+    }
+
+    // Chặn sự kiện cuộn cảm ứng gây trôi trang khi đang dùng bút viết trên máy tính bảng
+    canvas.addEventListener('touchstart', function(e) {
+      if (typeof drawTool !== 'undefined' && drawTool !== 'cursor') {
+        // Nếu có từ 2 ngón tay trở lên chạm vào: Cho phép dùng 2 ngón tay để cuộn trang!
+        if (e.touches && e.touches.length >= 2) {
+          isPointerDown = false;
+          currentStroke = null;
+          return;
+        }
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', function(e) {
+      if (typeof drawTool !== 'undefined' && drawTool !== 'cursor') {
+        if (e.touches && e.touches.length >= 2) return;
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    // Lắng nghe ở pha Capture để lọc tì tay (Palm Rejection) trước khi vẽ
+    canvas.addEventListener('pointerdown', function(e) {
+      // Nếu phát hiện bút Stylus (Apple Pencil / S-Pen), tự động ưu tiên bút
+      if (e.pointerType === 'pen' && !window.palmRejectionOnlyPen) {
+        window.palmRejectionOnlyPen = true;
+        const palmBtn = document.getElementById('qbtn-palm');
+        if (palmBtn) palmBtn.classList.add('active-mode');
+      }
+      // Nếu đang bật chế độ Chỉ nhận Bút mà bàn tay chạm vào -> Bỏ qua nét vẽ đó
+      if (window.palmRejectionOnlyPen && e.pointerType === 'touch') {
+        e.stopImmediatePropagation();
+        return;
+      }
+    }, true);
+
+    canvas.addEventListener('pointermove', function(e) {
+      if (window.palmRejectionOnlyPen && e.pointerType === 'touch') {
+        e.stopImmediatePropagation();
+        return;
+      }
+    }, true);
+  });
+</script>
+`;
+
+// ============================================================================
+// HÀM TỰ ĐỘNG TẠO SLIDE HTML ĐỒNG BỘ TỪ PDF / WORD / LATEX (TỐI ƯU TABLET)
 // ============================================================================
 function generateStandardSlideHTML(lessonTitle, grade, rawText) {
   const blocks = rawText.trim().split(/\n\s*\n/);
@@ -17,7 +214,6 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
     const lines = block.trim().split('\n').map(l => l.trim()).filter(Boolean);
     const firstLine = lines[0] || `Câu ${index + 1}.`;
     
-    // Nhận diện câu Lý thuyết nếu dòng đầu bắt đầu bằng [LT]
     if (firstLine.toUpperCase().startsWith('[LT]')) {
       return {
         lesson: 1,
@@ -31,7 +227,6 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
       };
     }
 
-    // Tách dòng lời giải (bắt đầu bằng Lời giải: hoặc HD: hoặc =>)
     let solution = "Xem hướng dẫn chi tiết của giáo viên.";
     const contentLines = [];
     lines.slice(1).forEach(line => {
@@ -42,7 +237,6 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
       }
     });
 
-    // Nhận diện câu Trả lời ngắn (chỉ có 1 dòng Đáp số: ...)
     if (contentLines.length === 1 && /^Đáp số:/i.test(contentLines[0])) {
       return {
         lesson: 1,
@@ -57,7 +251,6 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
       };
     }
 
-    // Mặc định là câu Trắc nghiệm 4 lựa chọn (dấu * ở đầu đáp án đúng)
     let correctIndex = 0;
     const options = contentLines.slice(0, 4).map((opt, idx) => {
       const isCorrect = opt.startsWith('*');
@@ -79,7 +272,6 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
     };
   });
 
-  // Xuất ra cấu trúc HTML chuẩn giống hệt file bai tap vecto.html của Thầy Vy
   return `<!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -95,8 +287,9 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { font-family: 'Inter', sans-serif; background-color: #0b1120; color: #0f172a; overflow: hidden; user-select: none; }
     .katex { font-size: 1.08em !important; }
-    #drawing-canvas.drawing-active { pointer-events: auto; touch-action: pan-y; cursor: crosshair; }
-    #drawing-canvas.drawing-inactive { pointer-events: none; touch-action: auto; }
+    #drawing-canvas.drawing-active { pointer-events: auto; touch-action: none; cursor: crosshair; }
+    #drawing-canvas.drawing-inactive { pointer-events: none; touch-action: pan-y; }
+    .tool-active { background-color: #2563eb !important; color: #fff !important; box-shadow: 0 0 0 2px #60a5fa; }
   </style>
 </head>
 <body class="h-screen w-screen flex flex-col justify-between bg-[#0b1120]">
@@ -105,9 +298,12 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
       <span class="bg-[#2563eb] text-white font-extrabold text-xs px-2 py-0.5 rounded uppercase">TOÁN ${grade}</span>
       <span class="text-white font-bold text-xs sm:text-sm truncate">${lessonTitle}</span>
     </div>
-    <div class="flex items-center gap-1.5">
-      <button onclick="toggleDraw()" id="btn-draw" class="bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 px-2.5 py-1 rounded text-xs font-semibold">✏️ Bảng vẽ</button>
-      <button onclick="clearDraw()" class="bg-rose-900/80 hover:bg-rose-800 text-rose-100 px-2 py-1 rounded text-xs font-semibold">🗑️ Xóa nét</button>
+    <div id="drawing-toolbar" class="flex items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
+      <button id="tool-cursor" onclick="setDrawTool('cursor')" class="tool-active px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">👆 Chuột</button>
+      <button id="tool-pen" onclick="setDrawTool('pen')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">✏️ Bút</button>
+      <button id="tool-eraser" onclick="setDrawTool('eraser')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">🧹 Tẩy</button>
+      <button onclick="undoLastStroke()" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">↩️</button>
+      <button onclick="clearCurrentSlideDrawing()" class="px-2 py-0.5 rounded bg-rose-900 text-rose-100 text-xs font-semibold">🗑️</button>
     </div>
   </header>
   <div class="w-full h-[2px] bg-slate-800 shrink-0"><div id="progress-bar" class="h-full bg-gradient-to-r from-blue-500 to-amber-400 transition-all" style="width:1%"></div></div>
@@ -136,7 +332,7 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
               <div id="solution-text" class="text-slate-800 text-base sm:text-lg font-medium"></div>
             </div>
           </div>
-          <div class="h-24 shrink-0"></div>
+          <div class="h-36 shrink-0"></div>
           <canvas id="drawing-canvas" class="drawing-inactive absolute top-0 left-0 z-30"></canvas>
         </div>
       </div>
@@ -152,6 +348,87 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
     let currentSlideIndex = 0;
     let revealedSlides = new Array(SLIDES.length).fill(false);
     let userMCQChoice = new Array(SLIDES.length).fill(null);
+    let slideDrawings = SLIDES.map(() => []);
+    let currentStroke = null, drawTool = 'cursor', penColor = '#ef4444', baseStrokeWidth = 2.8, isPointerDown = false;
+
+    const canvas = document.getElementById('drawing-canvas');
+    const ctx = canvas.getContext('2d');
+    const scrollInner = document.getElementById('slide-scroll-inner');
+
+    function resizeCanvas() {
+      const width = scrollInner.scrollWidth;
+      const height = Math.max(scrollInner.scrollHeight, scrollInner.clientHeight);
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+      redrawCanvas();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    function setDrawTool(tool) {
+      drawTool = tool;
+      ['cursor', 'pen', 'eraser'].forEach(t => {
+        const el = document.getElementById('tool-' + t);
+        if (el) el.classList.toggle('tool-active', t === tool);
+      });
+      if (tool === 'cursor') {
+        canvas.classList.replace('drawing-active', 'drawing-inactive');
+      } else {
+        canvas.classList.replace('drawing-inactive', 'drawing-active');
+      }
+    }
+
+    function getRelativePoint(e) {
+      const rect = canvas.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (drawTool === 'cursor') return;
+      canvas.setPointerCapture(e.pointerId);
+      isPointerDown = true;
+      currentStroke = { tool: drawTool, color: penColor, width: drawTool === 'eraser' ? 22 : baseStrokeWidth, points: [getRelativePoint(e)] };
+      slideDrawings[currentSlideIndex].push(currentStroke);
+      redrawCanvas();
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!isPointerDown || !currentStroke) return;
+      const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      events.forEach(ev => currentStroke.points.push(getRelativePoint(ev)));
+      redrawCanvas();
+    });
+
+    canvas.addEventListener('pointerup', () => { isPointerDown = false; currentStroke = null; });
+
+    function redrawCanvas() {
+      const width = scrollInner.scrollWidth;
+      const height = Math.max(scrollInner.scrollHeight, scrollInner.clientHeight);
+      ctx.clearRect(0, 0, width, height);
+      for (const st of slideDrawings[currentSlideIndex]) {
+        if (!st.points || !st.points.length) continue;
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = st.width;
+        ctx.globalCompositeOperation = st.tool === 'eraser' ? 'destination-out' : 'source-over';
+        ctx.strokeStyle = st.tool === 'eraser' ? 'rgba(0,0,0,1)' : st.color;
+        ctx.beginPath();
+        ctx.moveTo(st.points[0].x, st.points[0].y);
+        for (let i = 1; i < st.points.length - 1; i++) {
+          ctx.quadraticCurveTo(st.points[i].x, st.points[i].y, (st.points[i].x + st.points[i+1].x)/2, (st.points[i].y + st.points[i+1].y)/2);
+        }
+        if (st.points.length > 1) ctx.lineTo(st.points[st.points.length-1].x, st.points[st.points.length-1].y);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    function undoLastStroke() { slideDrawings[currentSlideIndex].pop(); redrawCanvas(); }
+    function clearCurrentSlideDrawing() { slideDrawings[currentSlideIndex] = []; redrawCanvas(); }
 
     function renderSlide() {
       const q = SLIDES[currentSlideIndex];
@@ -214,6 +491,7 @@ function generateStandardSlideHTML(lessonTitle, grade, rawText) {
       if (window.renderMathInElement) {
         renderMathInElement(document.getElementById('slide-card'), { delimiters: [{left: "$$", right: "$$", display: true}, {left: "$", right: "$", display: false}], throwOnError: false });
       }
+      setTimeout(resizeCanvas, 30);
     }
     function toggleSolution() { revealedSlides[currentSlideIndex] = !revealedSlides[currentSlideIndex]; renderSlide(); }
     function prevSlide() { if (currentSlideIndex > 0) { currentSlideIndex--; renderSlide(); } }
@@ -229,9 +507,8 @@ export default function App() {
   const [selectedGrade, setSelectedGrade] = useState(10);
   const [isTeacher, setIsTeacher] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [isExpandedView, setIsExpandedView] = useState(false); // Tối ưu không gian hiển thị 100%
+  const [isExpandedView, setIsExpandedView] = useState(false);
 
-  // State dữ liệu
   const [lessons, setLessons] = useState([]);
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -243,18 +520,15 @@ export default function App() {
     schedule_note: 'Lịch học và thông báo mới nhất sẽ được cập nhật tại đây.'
   });
 
-  // State Đăng nhập GV
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // State Thêm mới & Bộ tạo HTML đồng bộ từ PDF/Text
   const [newTitle, setNewTitle] = useState('');
   const [driveInput, setDriveInput] = useState('');
   const [htmlContentInput, setHtmlContentInput] = useState('');
   const [showGeneratorModal, setShowGeneratorModal] = useState(false);
   const [rawSlideBuilderText, setRawSlideBuilderText] = useState('');
 
-  // State Làm bài tập & Xem điểm (Tab 3)
   const [activeExercise, setActiveExercise] = useState(null);
   const [studentName, setStudentName] = useState('');
   const [studentClass, setStudentClass] = useState('');
@@ -327,7 +601,6 @@ export default function App() {
     else setShowLoginModal(false);
   };
 
-  // ================= XỬ LÝ TAB 1: BÀI HỌC HTML & ĐỒNG BỘ KHÓA ĐÁP ÁN =================
   const handleFileUploadHTML = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -396,18 +669,12 @@ export default function App() {
   };
 
   // ============================================================================
-  // CƠ CHẾ TIÊM SCRIPT ĐỒNG BỘ 100% VỚI FILE "bai tap vecto.html" CỦA THẦY VY
+  // KẾT HỢP ENGINE BẢNG VẼ TABLET + CƠ CHẾ KHÓA/MỞ ĐÁP ÁN TỪ XA
   // ============================================================================
   const getRenderedHtml = (lesson) => {
     if (!lesson?.html_cache) return '';
-    
-    // Nếu Giáo viên BẬT cho xem đáp án: Giữ nguyên toàn bộ tính năng xem đáp án của file mẫu
-    if (lesson.show_answers) {
-      return lesson.html_cache;
-    }
 
-    // Nếu Giáo viên TẮT đáp án: Khóa biến revealedSlides, ẩn #solution-container và #reveal-btn-badge
-    const lockScriptAndStyle = `
+    const lockAnswerCode = lesson.show_answers ? '' : `
       <style>
         #solution-container, #reveal-btn-badge, .dap-an, .loi-giai, .answer, .solution {
           display: none !important;
@@ -419,10 +686,7 @@ export default function App() {
       </style>
       <script>
         window.addEventListener('DOMContentLoaded', function() {
-          // Ghi đè hàm toggleSolution và khóa mảng revealedSlides luôn bằng false
-          window.toggleSolution = function() {
-            return false;
-          };
+          window.toggleSolution = function() { return false; };
           if (typeof renderSlide === 'function') {
             const originalRenderSlide = renderSlide;
             window.renderSlide = function() {
@@ -437,13 +701,14 @@ export default function App() {
       </script>
     `;
 
+    const fullInjectedCode = TABLET_PRO_DRAWING_INJECTION + lockAnswerCode;
+
     if (lesson.html_cache.includes('</body>')) {
-      return lesson.html_cache.replace('</body>', `${lockScriptAndStyle}</body>`);
+      return lesson.html_cache.replace('</body>', `${fullInjectedCode}</body>`);
     }
-    return lesson.html_cache + lockScriptAndStyle;
+    return lesson.html_cache + fullInjectedCode;
   };
 
-  // ================= XỬ LÝ TAB 2: TÀI LIỆU DRIVE =================
   const addDocument = async () => {
     if (!newTitle || !driveInput) return alert('Nhập tên tài liệu và Link Google Drive!');
     const fileId = extractDriveId(driveInput);
@@ -466,7 +731,6 @@ export default function App() {
     fetchData();
   };
 
-  // ================= XỬ LÝ TAB 3: BÀI TẬP & BẢNG ĐIỂM =================
   const addExercise = async () => {
     if (!newTitle || !rawQuizText) return alert('Nhập tên bài tập và nội dung câu hỏi!');
     const blocks = rawQuizText.trim().split(/\n\s*\n/);
@@ -534,15 +798,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f172a] pb-16 md:pb-4 font-sans text-slate-800 flex flex-col">
-      {/* HEADER GỌN GÀNG ĐỒNG BỘ TÔNG MÀU SLIDE THẦY VY */}
+    <div className="min-h-screen bg-[#0f172a] pb-16 md:pb-2 font-sans text-slate-800 flex flex-col">
+      {/* HEADER GỌN GÀNG */}
       <header className="bg-[#111827] border-b border-slate-800 text-white shadow-md sticky top-0 z-30">
-        <div className="max-w-[1600px] mx-auto px-3 py-2 flex items-center justify-between gap-2">
-          <div className="flex items-center space-x-2.5">
+        <div className="max-w-[1600px] mx-auto px-3 py-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
             <span className="bg-[#2563eb] text-white font-extrabold text-xs px-2.5 py-1 rounded-md tracking-wide uppercase">
               TOÁN THẦY VY
             </span>
-            {/* 4 TAB TRÊN DESKTOP */}
             <div className="hidden md:flex items-center space-x-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700">
               {[
                 { id: 'lessons', label: '1. Bài học Slide', icon: BookOpen },
@@ -567,7 +830,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* CHỌN 3 KHỐI (10 - 11 - 12) */}
           <div className="flex bg-slate-800/90 p-0.5 rounded-lg border border-slate-700">
             {GRADES.map((g) => (
               <button
@@ -584,16 +846,14 @@ export default function App() {
             ))}
           </div>
 
-          {/* NÚT MỞ RỘNG KHÔNG GIAN & ĐĂNG NHẬP GIÁO VIÊN */}
           <div className="flex items-center gap-1.5">
             {activeTab === 'lessons' && (
               <button
                 onClick={() => setIsExpandedView(!isExpandedView)}
-                className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold transition"
-                title="Ẩn/Hiện cột danh sách để tối ưu không gian Slide"
+                className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg text-xs font-extrabold transition shadow"
               >
                 {isExpandedView ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                <span className="hidden sm:inline">{isExpandedView ? 'Hiện danh sách' : 'Toàn màn hình'}</span>
+                <span>{isExpandedView ? 'Hiện DS Bài' : 'Chế độ Bảng dạy (Full)'}</span>
               </button>
             )}
 
@@ -618,12 +878,10 @@ export default function App() {
         </div>
       </header>
 
-      {/* NỘI DUNG CHÍNH (Tối ưu sát viền màn hình giống file mẫu) */}
-      <main className="max-w-[1600px] w-full mx-auto px-2 sm:px-3 py-2 flex-1 flex flex-col">
+      <main className="max-w-[1600px] w-full mx-auto px-1.5 sm:px-3 py-1.5 flex-1 flex flex-col">
         {/* ==================== TAB 1: BÀI HỌC HTML ==================== */}
         {activeTab === 'lessons' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
-            {/* Cột trái: Danh sách bài học (Tự ẩn khi bật Toàn màn hình) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 flex-1">
             {!isExpandedView && (
               <div className="lg:col-span-3 space-y-2.5 flex flex-col">
                 {isTeacher && (
@@ -661,11 +919,9 @@ export default function App() {
                 )}
 
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 space-y-2 flex-1 overflow-y-auto max-h-[82vh]">
-                  <div className="flex items-center justify-between px-1">
-                    <h2 className="font-bold text-slate-300 text-xs uppercase tracking-wider">
-                      Bài giảng Khối {selectedGrade} ({lessons.length})
-                    </h2>
-                  </div>
+                  <h2 className="font-bold text-slate-300 text-xs uppercase tracking-wider px-1">
+                    Bài giảng Khối {selectedGrade} ({lessons.length})
+                  </h2>
                   {lessons.length === 0 && (
                     <p className="text-xs text-slate-500 p-4 text-center">Chưa có bài học nào được mở.</p>
                   )}
@@ -729,10 +985,9 @@ export default function App() {
               </div>
             )}
 
-            {/* Cột phải: Khung hiển thị Slide HTML (Chiếm trọn không gian) */}
             <div className={isExpandedView ? 'lg:col-span-12' : 'lg:col-span-9'}>
               {selectedLesson ? (
-                <div className="bg-[#0b1120] rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-68px)]">
+                <div className="bg-[#0b1120] rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-58px)]">
                   {selectedLesson.html_cache ? (
                     <iframe
                       key={`${selectedLesson.id}-${selectedLesson.show_answers}`}
@@ -1100,10 +1355,10 @@ export default function App() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <h3 className="font-extrabold text-base sm:text-lg text-amber-400 flex items-center gap-2">
-                  <Sparkles className="w-5 h-5" /> Trình Tạo Slide HTML Đồng Bộ (Giao diện Chuẩn Thầy Vy)
+                  <Sparkles className="w-5 h-5" /> Trình Tạo Slide HTML Đồng Bộ (Tối ưu viết Bảng trên Máy tính bảng)
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Copy nội dung từ PDF / Word / LaTeX dán vào đây — Hệ thống tự động đóng gói thành Slide có KaTeX, Bảng vẽ và đồng bộ nút Khóa/Mở đáp án.
+                  Copy nội dung từ PDF / Word / LaTeX dán vào đây — Tự động đóng gói Slide có KaTeX, Bảng vẽ Chống tì tay và Khóa/Mở đáp án.
                 </p>
               </div>
               <button onClick={() => setShowGeneratorModal(false)} className="text-slate-400 hover:text-white text-lg font-bold px-2">✕</button>
@@ -1119,7 +1374,7 @@ export default function App() {
 
             <textarea
               rows={10}
-              placeholder={`Mỗi slide cách nhau 1 dòng trống. Hỗ trợ đầy đủ công thức Toán $...$:\n\n[LT] BÀI 1. KHÁI NIỆM VECTƠ\n• Vectơ là một đoạn thẳng có hướng.\n• Hai vectơ bằng nhau nếu cùng hướng và cùng độ dài.\n\nCâu 1. Cho biểu thức $\\overrightarrow{AB} = \\overrightarrow{AC} \\neq \\vec{0}$. Khi đó:\nA. Tam giác ABC cân.\nB. Tam giác ABC đều.\nC. A là trung điểm BC.\n*D. Điểm B trùng với điểm C.\nLời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cuối phải trùng nhau.\n\nCâu 2. Cho hình vuông ABCD có AB = 2. Tính $|\\overrightarrow{OA}|$?\nĐáp số: 1,41\nLời giải: Đường chéo chia đôi bằng $\\sqrt{2} \\approx 1,41$.`}
+              placeholder={`Mỗi slide cách nhau 1 dòng trống. Hỗ trợ đầy đủ công thức Toán $...$:\n\n[LT] BÀI 1. KHÁI NIỆM VECTƠ\n• Vectơ là một đoạn thẳng có hướng.\n• Hai vectơ bằng nhau nếu cùng hướng và cùng độ dài.\n\nCâu 1. Cho biểu thức $\\overrightarrow{AB} = \\overrightarrow{AC} \\neq \\vec{0}$. Khi đó:\nA. Tam giác ABC cân.\nB. Tam giác ABC đều.\nC. A là trung điểm BC.\n*D. Điểm B trùng với điểm C.\nLời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cuối phải trùng nhau.`}
               value={rawSlideBuilderText}
               onChange={(e) => setRawSlideBuilderText(e.target.value)}
               className="w-full p-3.5 bg-slate-950 border border-slate-700 rounded-xl text-xs sm:text-sm font-mono text-slate-100"
