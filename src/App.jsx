@@ -797,13 +797,12 @@ export default function App() {
   const [driveInput, setDriveInput] = useState('');
   const [htmlContentInput, setHtmlContentInput] = useState('');
 
-  // State cho Tab 5: Chuyển PDF ➔ Slide HTML
+  // State cho Tab 5: Chuyển PDF & Ảnh ➔ Slide HTML
   const [converterTitle, setConverterTitle] = useState('');
   const [converterRawText, setConverterRawText] = useState(
 `[LT] BÀI 1. KHÁI NIỆM VECTƠ — TÓM TẮT LÝ THUYẾT
 Vectơ là một đoạn thẳng có hướng (đã chỉ ra điểm đầu và điểm cuối).
-Hai vectơ cùng phương nếu giá của chúng song song hoặc trùng nhau.
-Hai vectơ bằng nhau nếu chúng cùng hướng và cùng độ dài: $\\vec{a} = \\vec{b}$.
+Hai vectơ bằng nhau nếu cùng hướng và cùng độ dài: $\\vec{a} = \\vec{b}$.
 
 PHẦN I. CÂU TRẮC NGHIỆM
 Câu 1. Cho biểu thức $\\overrightarrow{AB} = \\overrightarrow{AC} \\neq \\vec{0}$. Khi đó:
@@ -811,23 +810,13 @@ A. Tam giác ABC là tam giác cân.
 B. Tam giác ABC là tam giác đều.
 C. Điểm A là trung điểm đoạn thẳng BC.
 *D. Điểm B trùng với điểm C.
-Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cuối phải trùng nhau $\\Rightarrow B \\equiv C$.
-
-PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI
-Câu 1. Cho hình vuông $ABCD$ có tâm $O$. Xét tính đúng sai:
-*a) $\\overrightarrow{AO}$ bằng với $\\overrightarrow{OC}$.
-b) $\\overrightarrow{OA}$ bằng với $\\overrightarrow{OB}$.
-*c) $|\\overrightarrow{AC}|$ bằng với $|\\overrightarrow{BD}|$.
-d) $\\overrightarrow{DA}$ bằng với $\\overrightarrow{BC}$.
-Lời giải: O là trung điểm AC nên a) Đúng; hai đường chéo bằng nhau nên c) Đúng.
-
-PHẦN III. CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN
-Câu 1. Cho hình vuông $ABCD$ có tâm $O$ và $AB = 2$ thì $|\\overrightarrow{OA}|$ bằng bao nhiêu?
-Đáp số: 1,41
-Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\sqrt{2} \\approx 1,41$.`
+Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cuối phải trùng nhau $\\Rightarrow B \\equiv C$.`
   );
   const [parsedPreviewSlides, setParsedPreviewSlides] = useState([]);
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('vy_gemini_key') || '');
+  const [pdfPageRange, setPdfPageRange] = useState('1-5');
+  const [aiStatusText, setAiStatusText] = useState('');
 
   // State Làm bài tập & Xem điểm (Tab 3)
   const [activeExercise, setActiveExercise] = useState(null);
@@ -852,7 +841,6 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
     fetchData();
   }, [selectedGrade, isTeacher]);
 
-  // Tự động cập nhật bản xem trước Slide khi văn bản trong Tab 5 thay đổi
   useEffect(() => {
     const slides = parseSmartMathContentToSlides(converterTitle || 'CHUYÊN ĐỀ TOÁN', converterRawText);
     setParsedPreviewSlides(slides);
@@ -908,47 +896,183 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
     else setShowLoginModal(false);
   };
 
-  // ================= ĐỌC TRỰC TIẾP FILE PDF SANG CẤU TRÚC SLIDE (TAB 5) =================
+  const saveGeminiKey = (val) => {
+    setGeminiApiKey(val);
+    localStorage.setItem('vy_gemini_key', val);
+  };
+
+  // ================= AI VISION: CHUYỂN TỪ ẢNH & PDF SANG LATEX + HÌNH VẼ SVG =================
+  const convertImagesWithGeminiVision = async (base64Images, appendMode = false) => {
+    const prompt = `Bạn là chuyên gia số hóa đề Toán THPT cho hệ thống trình chiếu của Thầy Phan Hoài Vy.
+Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định dạng chuẩn sau (TUYỆT ĐỐI KHÔNG bọc trong markdown \`\`\`):
+1. Mọi công thức Toán, vectơ, phân số, căn thức phải viết trong cặp dấu $...$ chuẩn LaTeX (ví dụ: $\\overrightarrow{AB}$, $\\dfrac{a\\sqrt{3}}{2}$, $\\widehat{ABC} = 60^\\circ$).
+2. Phân loại đúng tiêu đề:
+   - Lý thuyết: dòng đầu ghi "[LT] Tiêu đề lý thuyết", các dòng dưới ghi nội dung.
+   - Trắc nghiệm 4 lựa chọn: ghi "PHẦN I. CÂU TRẮC NGHIỆM", mỗi câu bắt đầu bằng "Câu 1. ...", 4 dòng đáp án "A. ...", "B. ...", "C. ...", "D. ...". Đặt dấu * ngay trước phương án đúng (ví dụ: "*A. ..."). Thêm dòng "Lời giải: ..." ngắn gọn súc tích ở dưới.
+   - Đúng/Sai: ghi "PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI", các ý ghi "a) ...", "b) ...", "c) ...", "d) ...", đặt dấu * trước ý Đúng (ví dụ "*a) ...").
+   - Trả lời ngắn: ghi "PHẦN III. CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN", bên dưới có dòng "Đáp số: ..." và "Lời giải: ...".
+3. VẼ LẠI HÌNH HỌC SIÊU NÉT:
+   Nếu trong ảnh có hình vẽ minh họa (vectơ, hình học, đồ thị, bảng biến thiên), hãy TỰ VẼ LẠI thành mã <svg viewBox="0 0 320 220" class="w-full h-auto max-h-[240px]" xmlns="http://www.w3.org/2000/svg">...</svg> sắc nét, đúng đỉnh, mũi tên và đặt thẻ <svg>...</svg> trên 1 dòng ngay dưới đề bài của câu đó.`;
+
+    const parts = [
+      { text: prompt },
+      ...base64Images.map((b64) => {
+        const mimeMatch = b64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+        const rawBase64 = b64.includes(',') ? b64.split(',')[1] : b64;
+        return { inline_data: { mime_type: mimeType, data: rawBase64 } };
+      })
+    ];
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey.trim()}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.1 } })
+      }
+    );
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData?.error?.message || 'Kiểm tra lại Gemini API Key');
+    }
+    const data = await res.json();
+    const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleaned = resultText.replace(/^```[a-z]*\n?/gim, '').replace(/```$/gm, '').trim();
+    setConverterRawText((prev) => (appendMode ? (prev + '\n\n' + cleaned).trim() : cleaned));
+  };
+
+  // 1. CHỨC NĂNG MỚI: TẢI TRỰC TIẾP 1 HOẶC NHIỀU FILE ẢNH (.PNG, .JPG) CHUYỂN SANG SLIDE HTML
+  const handleImageFilesUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    if (!converterTitle) {
+      setConverterTitle(files[0].name.replace(/\.[a-zA-Z0-9]+$/, ''));
+    }
+
+    const readAsDataURL = (file) =>
+      new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target.result);
+        reader.readAsDataURL(file);
+      });
+
+    setIsExtractingPdf(true);
+    try {
+      const base64List = await Promise.all(files.map(readAsDataURL));
+      if (geminiApiKey.trim()) {
+        setAiStatusText(`Đang dùng AI chuyển ${files.length} ảnh sang câu hỏi LaTeX & vẽ lại hình SVG...`);
+        await convertImagesWithGeminiVision(base64List, true);
+      } else {
+        // Nếu chưa nhập API Key: tạo câu hỏi kèm ảnh minh họa trực tiếp
+        const imgBlocks = base64List
+          .map((b64, idx) => `Câu ${idx + 1}. Quan sát hình ảnh bài toán sau:\n[IMG:${b64}]\n*A. Đáp án A\nB. Đáp án B\nC. Đáp án C\nD. Đáp án D\nLời giải: Xem hướng dẫn của giáo viên.`)
+          .join('\n\n');
+        setConverterRawText((prev) => (prev ? prev + '\n\n' + imgBlocks : imgBlocks));
+      }
+    } catch (err) {
+      alert('Lỗi chuyển đổi từ ảnh: ' + err.message);
+    } finally {
+      setIsExtractingPdf(false);
+      setAiStatusText('');
+      e.target.value = '';
+    }
+  };
+
+  // 2. XỬ LÝ DÁN ẢNH TỪ CLIPBOARD (Ctrl + V)
+  const handleClipboardPaste = async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          const base64Img = ev.target.result;
+          if (geminiApiKey.trim()) {
+            setIsExtractingPdf(true);
+            setAiStatusText('Đang nhận diện công thức Toán & vẽ lại hình SVG từ ảnh vừa dán...');
+            try {
+              await convertImagesWithGeminiVision([base64Img], true);
+            } catch (err) {
+              alert('Lỗi AI đọc ảnh dán: ' + err.message);
+            } finally {
+              setIsExtractingPdf(false);
+              setAiStatusText('');
+            }
+          } else {
+            setConverterRawText((prev) => `${prev}\n[IMG:${base64Img}]\n`);
+          }
+        };
+        reader.readAsDataURL(blob);
+      }
+    }
+  };
+
+  // 3. XỬ LÝ TẢI FILE PDF
   const handlePdfUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!converterTitle) {
-      setConverterTitle(file.name.replace(/\.pdf$/i, ''));
-    }
-    if (!window.pdfjsLib) {
-      return alert('Đang tải thư viện đọc PDF, vui lòng thử lại sau 2 giây!');
-    }
+    if (!converterTitle) setConverterTitle(file.name.replace(/\.pdf$/i, ''));
+    if (!window.pdfjsLib) return alert('Thư viện PDF đang tải, vui lòng thử lại sau 2 giây!');
 
     setIsExtractingPdf(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      let fullExtractedText = '';
 
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        let lastY = null;
-        let pageLines = '';
-
-        for (const item of textContent.items) {
-          const currentY = Math.round(item.transform[5]);
-          if (lastY !== null && Math.abs(currentY - lastY) > 6) {
-            pageLines += '\n';
-          } else if (lastY !== null) {
-            pageLines += ' ';
-          }
-          pageLines += item.str;
-          lastY = currentY;
-        }
-        fullExtractedText += pageLines + '\n\n';
+      let startPage = 1, endPage = Math.min(pdf.numPages, 5);
+      const rangeMatch = pdfPageRange.trim().match(/^(\d+)\s*\-\s*(\d+)$/);
+      if (rangeMatch) {
+        startPage = Math.max(1, parseInt(rangeMatch[1], 10));
+        endPage = Math.min(pdf.numPages, parseInt(rangeMatch[2], 10));
+      } else if (/^\d+$/.test(pdfPageRange.trim())) {
+        startPage = endPage = Math.min(pdf.numPages, parseInt(pdfPageRange.trim(), 10));
       }
 
-      setConverterRawText(fullExtractedText.trim());
+      if (geminiApiKey.trim()) {
+        setConverterRawText('');
+        for (let p = startPage; p <= endPage; p++) {
+          setAiStatusText(`Đang dùng AI quét công thức & vẽ hình trang ${p}/${endPage}...`);
+          const page = await pdf.getPage(p);
+          const viewport = page.getViewport({ scale: 2.0 });
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = viewport.width;
+          tempCanvas.height = viewport.height;
+          await page.render({ canvasContext: tempCanvas.getContext('2d'), viewport }).promise;
+          const base64Img = tempCanvas.toDataURL('image/jpeg', 0.88);
+          await convertImagesWithGeminiVision([base64Img], p > startPage);
+        }
+      } else {
+        let fullExtractedText = '';
+        for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          let lastY = null, lastX = null, pageLines = '';
+          for (const item of textContent.items) {
+            const curY = Math.round(item.transform[5]);
+            const curX = Math.round(item.transform[4]);
+            if (lastY !== null && Math.abs(curY - lastY) > 6) {
+              pageLines += '\n';
+            } else if (lastX !== null && curX - lastX > 12) {
+              pageLines += ' ';
+            }
+            pageLines += item.str;
+            lastY = curY;
+            lastX = curX + (item.width || 0);
+          }
+          fullExtractedText += pageLines + '\n\n';
+        }
+        setConverterRawText(cleanBrokenVietnamesePdfText(fullExtractedText.trim()));
+      }
     } catch (err) {
-      alert('Không thể đọc file PDF này: ' + err.message);
+      alert('Lỗi xử lý PDF: ' + err.message);
     } finally {
       setIsExtractingPdf(false);
+      setAiStatusText('');
+      e.target.value = '';
     }
   };
 
@@ -985,7 +1109,7 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
     URL.revokeObjectURL(url);
   };
 
-  // ================= XỬ LÝ TAB 1: BÀI HỌC HTML =================
+  // ================= XỬ LÝ TAB 1, 2, 3 =================
   const handleFileUploadHTML = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -998,10 +1122,9 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
   const addLesson = async () => {
     if (!newTitle) return alert('Vui lòng nhập tên bài học!');
     if (!htmlContentInput && !driveInput) {
-      return alert('Vui lòng chọn file .html hoặc dùng Tab 5 (Chuyển PDF ➔ Slide)!');
+      return alert('Vui lòng chọn file .html hoặc dùng Tab 5 (Chuyển PDF/Ảnh ➔ Slide)!');
     }
     const fileId = extractDriveId(driveInput);
-
     const { error } = await supabase.from('lessons').insert([{
       title: newTitle,
       grade: selectedGrade,
@@ -1010,7 +1133,6 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
       is_active: true,
       show_answers: false
     }]);
-
     if (!error) {
       setNewTitle('');
       setDriveInput('');
@@ -1030,7 +1152,6 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
 
   const getRenderedHtml = (lesson) => {
     if (!lesson?.html_cache) return '';
-
     const lockAnswerCode = lesson.show_answers ? '' : `
       <style>
         #solution-container, #reveal-btn-badge, .dap-an, .loi-giai, .answer, .solution {
@@ -1057,16 +1178,13 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
         });
       </script>
     `;
-
     const fullInjectedCode = TABLET_PRO_DRAWING_INJECTION + lockAnswerCode;
-
     if (lesson.html_cache.includes('</body>')) {
       return lesson.html_cache.replace('</body>', `${fullInjectedCode}</body>`);
     }
     return lesson.html_cache + fullInjectedCode;
   };
 
-  // ================= XỬ LÝ TAB 2 & TAB 3 =================
   const addDocument = async () => {
     if (!newTitle || !driveInput) return alert('Nhập tên tài liệu và Link Google Drive!');
     const fileId = extractDriveId(driveInput);
@@ -1160,7 +1278,7 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
     { id: 'documents', label: '2. Tài liệu', icon: FileText },
     { id: 'exercises', label: '3. Bài tập', icon: CheckSquare },
     { id: 'info', label: '4. Thông tin', icon: Info },
-    ...(isTeacher ? [{ id: 'converter', label: '✨ 5. Chuyển PDF ➔ Slide', icon: Wand2 }] : []),
+    ...(isTeacher ? [{ id: 'converter', label: '✨ 5. Chuyển PDF/Ảnh ➔ Slide', icon: Wand2 }] : []),
   ];
 
   return (
@@ -1257,7 +1375,7 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
                         onClick={() => setActiveTab('converter')}
                         className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] px-2 py-1 rounded-md shadow"
                       >
-                        <Wand2 className="w-3 h-3" /> Chuyển từ PDF
+                        <Wand2 className="w-3 h-3" /> Từ PDF / Ảnh
                       </button>
                     </div>
                     <input
@@ -1376,79 +1494,112 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
           </div>
         )}
 
-        {/* ==================== TAB 5: CHUYỂN PDF ➔ SLIDE HTML CHUẨN FORM THẦY VY ==================== */}
+        {/* ==================== TAB 5: CHUYỂN TỪ ẢNH & PDF ➔ SLIDE HTML ==================== */}
         {activeTab === 'converter' && isTeacher && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
-            {/* Cột trái: Tải file PDF & Soạn thảo tự động nhận diện */}
-            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col space-y-3 text-white">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+            {/* Cột trái: Nhận Ảnh, PDF & Dán Clipboard Ctrl+V */}
+            <div 
+              onPaste={handleClipboardPaste}
+              className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col space-y-2.5 text-white"
+            >
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <div>
                   <h2 className="font-extrabold text-amber-400 text-sm sm:text-base flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4" /> Chuyển PDF / Đề Toán ➔ Slide HTML
+                    <Sparkles className="w-4 h-4" /> Siêu Chuyển Đổi Ảnh & PDF ➔ Slide Thầy Vy
                   </h2>
                   <p className="text-[11px] text-slate-400">
-                    Tự động nhận diện Lý thuyết, Phần I (ABCD), Phần II (Đúng/Sai), Phần III (Trả lời ngắn)
+                    Tải file Ảnh • Tải PDF • Hoặc bấm <strong className="text-emerald-400">Ctrl + V dán ảnh trực tiếp</strong>
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="Tên bài giảng (VD: Chương V - Vectơ)"
-                  value={converterTitle}
-                  onChange={(e) => setConverterTitle(e.target.value)}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs sm:text-sm text-white font-semibold"
-                />
+              {/* Ô nhập Gemini API Key & Trang PDF */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-950/90 p-2.5 rounded-xl border border-slate-800">
+                <div className="sm:col-span-2">
+                  <label className="text-[10px] text-amber-300 font-bold block mb-1">
+                    🔑 Gemini API Key (Đọc ảnh ra LaTeX & Vẽ lại hình SVG):
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Dán API Key (Lấy tại aistudio.google.com)..."
+                    value={geminiApiKey}
+                    onChange={(e) => saveGeminiKey(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-emerald-300"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 font-bold block mb-1">
+                    📄 Trang PDF:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="VD: 1-5"
+                    value={pdfPageRange}
+                    onChange={(e) => setPdfPageRange(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white font-bold text-center"
+                  />
+                </div>
+              </div>
 
-                <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 border border-dashed border-blue-400 rounded-xl text-xs font-bold text-blue-300 cursor-pointer transition">
+              <input
+                type="text"
+                placeholder="Tên bài giảng (VD: Chương V - Vectơ)"
+                value={converterTitle}
+                onChange={(e) => setConverterTitle(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs sm:text-sm text-white font-semibold"
+              />
+
+              {/* 2 NÚT CHỌN FILE: CHỌN ẢNH TRỰC TIẾP HOẶC CHỌN FILE PDF */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-600/25 hover:bg-emerald-600/40 border border-dashed border-emerald-400 rounded-xl text-xs font-bold text-emerald-200 cursor-pointer transition">
+                  <Upload className="w-4 h-4" />
+                  <span>{isExtractingPdf ? '⏳ Đang xử lý...' : '🖼️ Chọn Ảnh Đề Toán (.png/.jpg)'}</span>
+                  <input type="file" accept="image/*" multiple onChange={handleImageFilesUpload} className="hidden" />
+                </label>
+
+                <label className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-600/25 hover:bg-blue-600/40 border border-dashed border-blue-400 rounded-xl text-xs font-bold text-blue-200 cursor-pointer transition">
                   <FileUp className="w-4 h-4" />
-                  <span>{isExtractingPdf ? 'Đang quét PDF...' : '1. Chọn file PDF từ máy'}</span>
+                  <span>{isExtractingPdf ? '⏳ Đang xử lý...' : '📄 Chọn File PDF từ máy'}</span>
                   <input type="file" accept=".pdf" onChange={handlePdfUpload} className="hidden" />
                 </label>
               </div>
 
-              {/* Thống kê số lượng từng dạng câu hỏi đã nhận diện */}
+              {aiStatusText && (
+                <div className="bg-amber-500/20 border border-amber-400 text-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold animate-pulse">
+                  ⚡ {aiStatusText}
+                </div>
+              )}
+
+              {/* Thống kê 4 dạng Slide */}
               <div className="grid grid-cols-4 gap-1.5 bg-slate-950 p-2 rounded-xl border border-slate-800 text-center">
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-1.5">
-                  <div className="text-xs font-extrabold text-amber-400">
-                    {parsedPreviewSlides.filter(s => s.type === 'theory').length}
-                  </div>
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-1">
+                  <div className="text-xs font-extrabold text-amber-400">{parsedPreviewSlides.filter(s => s.type === 'theory').length}</div>
                   <div className="text-[10px] text-slate-400">Lý thuyết</div>
                 </div>
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-1.5">
-                  <div className="text-xs font-extrabold text-blue-400">
-                    {parsedPreviewSlides.filter(s => s.type === 'mcq').length}
-                  </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-1">
+                  <div className="text-xs font-extrabold text-blue-400">{parsedPreviewSlides.filter(s => s.type === 'mcq').length}</div>
                   <div className="text-[10px] text-slate-400">Trắc nghiệm</div>
                 </div>
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-1.5">
-                  <div className="text-xs font-extrabold text-emerald-400">
-                    {parsedPreviewSlides.filter(s => s.type === 'tf').length}
-                  </div>
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-1">
+                  <div className="text-xs font-extrabold text-emerald-400">{parsedPreviewSlides.filter(s => s.type === 'tf').length}</div>
                   <div className="text-[10px] text-slate-400">Đúng / Sai</div>
                 </div>
-                <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-1.5">
-                  <div className="text-xs font-extrabold text-purple-400">
-                    {parsedPreviewSlides.filter(s => s.type === 'short').length}
-                  </div>
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-1">
+                  <div className="text-xs font-extrabold text-purple-400">{parsedPreviewSlides.filter(s => s.type === 'short').length}</div>
                   <div className="text-[10px] text-slate-400">Trả lời ngắn</div>
                 </div>
               </div>
 
-              <div className="text-[11px] text-slate-400 bg-slate-800/70 px-3 py-2 rounded-xl space-y-0.5">
-                <p>💡 <strong>Quy ước tự động nhận diện:</strong></p>
-                <p>• <strong>Lý thuyết:</strong> Dòng đầu có <code className="text-amber-300">[LT] Tiêu đề</code></p>
-                <p>• <strong>Trắc nghiệm / Đúng sai:</strong> Đặt dấu <code className="text-emerald-400">*</code> trước đáp án đúng (<code className="text-emerald-400">*A.</code> hoặc <code className="text-emerald-400">*a)</code>) hoặc có bảng đáp án <code className="text-emerald-400">1.A 2.B</code> ở cuối.</p>
-                <p>• <strong>Trả lời ngắn:</strong> Có dòng <code className="text-purple-300">Đáp số: ...</code> &nbsp;|&nbsp; <strong>Giải:</strong> Có dòng <code className="text-blue-300">Lời giải: ...</code></p>
+              <div className="text-[11px] text-slate-300 bg-slate-800/80 px-3 py-1.5 rounded-xl">
+                📋 <strong>Mẹo siêu nhanh:</strong> Bấm <kbd className="bg-slate-700 px-1.5 py-0.5 rounded text-amber-300">Win + Shift + S</kbd> chụp ảnh câu hỏi/hình vẽ rồi bấm <kbd className="bg-slate-700 px-1.5 py-0.5 rounded text-emerald-300">Ctrl + V</kbd> thẳng vào ô dưới đây!
               </div>
 
               <textarea
                 value={converterRawText}
                 onChange={(e) => setConverterRawText(e.target.value)}
-                rows={14}
+                rows={11}
                 className="w-full flex-1 p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-100 leading-relaxed"
-                placeholder="Nội dung quét từ PDF hoặc dán từ Word/LaTeX sẽ hiển thị tại đây để bạn kiểm tra..."
+                placeholder="Bấm Ctrl + V để dán ảnh chụp câu hỏi/hình vẽ, hoặc bấm nút Chọn Ảnh / Chọn PDF ở trên..."
               />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
@@ -1472,7 +1623,7 @@ Lời giải: Ta có $|\\overrightarrow{OA}| = OA = \\dfrac{2\\sqrt{2}}{2} = \\s
               <div className="bg-[#0b1120] rounded-2xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-64px)]">
                 <div className="bg-slate-900 px-3 py-1.5 border-b border-slate-800 flex items-center justify-between text-xs text-slate-300">
                   <span className="font-bold flex items-center gap-1.5 text-emerald-400">
-                    <Layers className="w-3.5 h-3.5" /> Xem trước Slide trực tiếp ({parsedPreviewSlides.length} Slide) — Có thể bấm thử đáp án & Bảng vẽ
+                    <Layers className="w-3.5 h-3.5" /> Xem trước Slide trực tiếp ({parsedPreviewSlides.length} Slide) — Có Bảng vẽ Toán Thầy Vy
                   </span>
                 </div>
                 <iframe
