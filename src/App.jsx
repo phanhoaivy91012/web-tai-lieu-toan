@@ -1185,6 +1185,52 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     localStorage.setItem('vy_gemini_key', val);
   };
 
+// DÁN LINK GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY:
+  const GAS_DRIVE_URL = 'https://script.google.com/macros/s/AKfycbwfzoNBEiWlDrVNhKQi_xM_WJEzZrHGET5xtxO2SU0CbI9PpXQPqUEvppAtoaXuoUaS/exec';
+
+  // Bộ nhớ tạm trên trình duyệt giúp mở lại bài đã xem trong 0 giây mà không tốn Supabase
+  const [driveContentCache, setDriveContentCache] = useState({});
+  const [isLoadingDriveFile, setIsLoadingDriveFile] = useState(false);
+
+  // Hàm đẩy file (HTML, PDF, Word, JSON Bài tập) thẳng lên Google Drive
+  const uploadToGoogleDrive = async (fileName, content, mimeType = 'text/html', isBase64 = false) => {
+    const res = await fetch(GAS_DRIVE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ fileName, content, mimeType, isBase64 })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Lỗi lưu file lên Google Drive');
+    return data.fileId;
+  };
+
+  // Hàm đọc nội dung HTML / Bài tập từ Google Drive về Web
+  const fetchFromGoogleDrive = async (fileId) => {
+    if (!fileId) return '';
+    if (driveContentCache[fileId]) return driveContentCache[fileId];
+    setIsLoadingDriveFile(true);
+    try {
+      const res = await fetch(`${GAS_DRIVE_URL}?fileId=${fileId}`);
+      const data = await res.json();
+      if (data.success && data.content) {
+        setDriveContentCache((prev) => ({ ...prev, [fileId]: data.content }));
+        return data.content;
+      }
+    } catch (e) {
+      console.error('Lỗi tải từ Drive:', e);
+    } finally {
+      setIsLoadingDriveFile(false);
+    }
+    return '';
+  };
+
+  // Tự động hút nội dung HTML từ Google Drive khi chọn bài học ở Tab 1
+  useEffect(() => {
+    if (selectedLesson && !selectedLesson.html_cache && selectedLesson.drive_file_id) {
+      fetchFromGoogleDrive(selectedLesson.drive_file_id);
+    }
+  }, [selectedLesson]);
+  
   // ================= AI VISION: CHUYỂN TỪ ẢNH & PDF SANG LATEX + HÌNH VẼ SVG =================
   const convertImagesWithGeminiVision = async (base64Images, appendMode = false) => {
     const prompt = `Bạn là chuyên gia số hóa đề Toán THPT cho hệ thống trình chiếu của Thầy Phan Hoài Vy.
@@ -1402,26 +1448,38 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   const addLesson = async () => {
     if (!newTitle) return alert('Vui lòng nhập tên bài học!');
     if (!htmlContentInput && !driveInput) {
-      return alert('Vui lòng chọn file .html hoặc dùng Tab 5 (Chuyển PDF/Ảnh ➔ Slide)!');
+      return alert('Vui lòng chọn file .html hoặc dán link Google Drive!');
     }
-    const fileId = extractDriveId(driveInput);
-    const { error } = await supabase.from('lessons').insert([{
-      title: newTitle,
-      grade: selectedGrade,
-      category: uploadCategory,
-      drive_file_id: fileId,
-      html_cache: htmlContentInput,
-      is_active: true,
-      show_answers: false
-    }]);
-    if (!error) {
+    try {
+      let fileId = extractDriveId(driveInput);
+      // Nếu chọn file .html từ máy -> Tự động đẩy file đó lên Google Drive!
+      if (htmlContentInput) {
+        fileId = await uploadToGoogleDrive(
+          `[K${selectedGrade}-${uploadCategory.toUpperCase()}] ${newTitle.trim()}.html`,
+          htmlContentInput,
+          'text/html'
+        );
+        setDriveContentCache((prev) => ({ ...prev, [fileId]: htmlContentInput }));
+      }
+
+      const { error } = await supabase.from('lessons').insert([{
+        title: newTitle,
+        grade: selectedGrade,
+        category: uploadCategory,
+        drive_file_id: fileId,
+        html_cache: null, // Tốn 0 KB trên Supabase
+        is_active: true,
+        show_answers: false
+      }]);
+
+      if (error) throw error;
       setNewTitle('');
       setDriveInput('');
       setHtmlContentInput('');
       setSelectedCategory(uploadCategory);
       fetchData();
-    } else {
-      alert('Lỗi: ' + error.message);
+    } catch (err) {
+      alert('Lỗi đẩy bài học lên Google Drive: ' + err.message);
     }
   };
 
@@ -1435,7 +1493,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   };
 
   const getRenderedHtml = (lesson) => {
-    if (!lesson?.html_cache) return '';
+    const rawHtml = lesson?.html_cache || driveContentCache[lesson?.drive_file_id] || '';
+    if (!rawHtml) return '';
     const lockAnswerCode = lesson.show_answers ? '' : `
       <style>
         #solution-container, #reveal-btn-badge, .dap-an, .loi-giai, .answer, .solution {
@@ -1463,10 +1522,10 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       </script>
     `;
     const fullInjectedCode = TABLET_PRO_DRAWING_INJECTION + lockAnswerCode;
-    if (lesson.html_cache.includes('</body>')) {
-      return lesson.html_cache.replace('</body>', `${fullInjectedCode}</body>`);
+    if (rawHtml.includes('</body>')) {
+      return rawHtml.replace('</body>', `${fullInjectedCode}</body>`);
     }
-    return lesson.html_cache + fullInjectedCode;
+    return rawHtml + fullInjectedCode;
   };
 
   const addDocument = async () => {
@@ -1509,23 +1568,48 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       return { id: idx + 1, question: questionText, options, correct: correctIndex };
     });
 
-    const { error } = await supabase.from('exercises').insert([{
-      title: newTitle,
-      grade: selectedGrade,
-      category: uploadCategory,
-      questions_json: parsedQuestions,
-      is_active: true
-    }]);
-    if (!error) {
-      setNewTitle('');
-      setRawQuizText('');
-      setSelectedCategory(uploadCategory);
-      fetchData();
+    try {
+      const jsonString = JSON.stringify(parsedQuestions);
+      const driveFileId = await uploadToGoogleDrive(
+        `[BAI-TAP-K${selectedGrade}] ${newTitle.trim()}.json`,
+        jsonString,
+        'application/json'
+      );
+
+      const { error } = await supabase.from('exercises').insert([{
+        title: newTitle,
+        grade: selectedGrade,
+        category: uploadCategory,
+        drive_file_id: driveFileId,
+        questions_json: [],
+        is_active: true
+      }]);
+
+      if (!error) {
+        setDriveContentCache((prev) => ({ ...prev, [driveFileId]: jsonString }));
+        setNewTitle('');
+        setRawQuizText('');
+        setSelectedCategory(uploadCategory);
+        fetchData();
+      }
+    } catch (err) {
+      alert('Lỗi lưu bài tập lên Google Drive: ' + err.message);
     }
   };
 
   const openExercise = async (ex) => {
-    setActiveExercise(ex);
+    let loadedExercise = { ...ex };
+    if ((!ex.questions_json || ex.questions_json.length === 0) && ex.drive_file_id) {
+      const jsonStr = await fetchFromGoogleDrive(ex.drive_file_id);
+      if (jsonStr) {
+        try {
+          loadedExercise.questions_json = JSON.parse(jsonStr);
+        } catch (e) {
+          console.error('Lỗi đọc JSON bài tập:', e);
+        }
+      }
+    }
+    setActiveExercise(loadedExercise);
     setUserAnswers({});
     setSubmittedScore(null);
     if (isTeacher) {
@@ -1902,7 +1986,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             <div className={isExpandedView ? 'lg:col-span-12' : 'lg:col-span-9'}>
               {selectedLesson ? (
                 <div className="bg-[#0b1120] rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-58px)]">
-                  {selectedLesson.html_cache ? (
+                  {(selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id]) ? (
                     <iframe
                       key={`${selectedLesson.id}-${selectedLesson.show_answers}`}
                       srcDoc={getRenderedHtml(selectedLesson)}
