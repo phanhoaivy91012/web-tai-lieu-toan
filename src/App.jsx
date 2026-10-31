@@ -1186,7 +1186,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   };
 
 // DÁN LINK GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY:
-  const GAS_DRIVE_URL = 'https://script.google.com/macros/s/AKfycbwfzoNBEiWlDrVNhKQi_xM_WJEzZrHGET5xtxO2SU0CbI9PpXQPqUEvppAtoaXuoUaS/exec';
+  const GAS_DRIVE_URL = 'https://script.google.com/macros/s/AKfycbxfN16PRs1KoS9JHW6-HR-EQZW9qgH6BpPJtmSpa-a3ZKaZuGwi2xlEw_ppZzfAsBMT/exec';
 
   // Bộ nhớ tạm trên trình duyệt giúp mở lại bài đã xem trong 0 giây mà không tốn Supabase
   const [driveContentCache, setDriveContentCache] = useState({});
