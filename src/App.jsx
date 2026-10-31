@@ -815,6 +815,10 @@ export default function App() {
   const [newStuPassword, setNewStuPassword] = useState('123456');
   const [newStuCode, setNewStuCode] = useState('');
   const [newStuPhone, setNewStuPhone] = useState('');
+  const [selectedClassFilter, setSelectedClassFilter] = useState('ALL'); // Chọn lọc theo từng lớp
+  const [allSubmissions, setAllSubmissions] = useState([]);              // Lưu toàn bộ điểm bài kiểm tra
+  const [bulkImportText, setBulkImportText] = useState('');              // Khung dán nhanh danh sách từ Excel/Word
+  const [showBulkModal, setShowBulkModal] = useState(false);             // Bật/tắt bảng nhập hàng loạt
 
   // State cho Tab 5: Chuyển PDF & Ảnh ➔ Slide HTML
   const [converterTitle, setConverterTitle] = useState('');
@@ -916,14 +920,20 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       .eq('id', 1)
       .single();
     if (infoData) setTeacherInfo(infoData);
-
-    // 5. Nếu là Giáo viên: Tải danh sách tài khoản học sinh và gợi ý mã 3 số tiếp theo
+// 5. Nếu là Giáo viên: Tải danh sách tài khoản học sinh + Toàn bộ điểm bài kiểm tra
     if (isTeacher) {
       const { data: stuData } = await supabase
         .from('student_accounts')
         .select('*')
         .order('student_code', { ascending: true });
       setStudentsList(stuData || []);
+
+      // Tải toàn bộ bài nộp & tên đề kiểm tra để gắn vào hồ sơ từng học sinh
+      const { data: subData } = await supabase
+        .from('submissions')
+        .select('*, exercises(title)')
+        .order('created_at', { ascending: false });
+      setAllSubmissions(subData || []);
 
       // Tự động tính mã 3 số tiếp theo (001 -> 999, quá 999 reset về 000)
       if (stuData && stuData.length > 0) {
@@ -936,7 +946,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       } else {
         setNewStuCode('001');
       }
-    }
+    }   
   }
 
   const extractDriveId = (input) => {
@@ -992,6 +1002,156 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   };
 
   // ================= QUẢN LÝ TÀI KHOẢN HỌC SINH (TAB 6 CỦA GIÁO VIÊN) =================
+
+  // Lấy danh sách các Lớp hiện có thuộc Phân hệ (Trường/Nhà) và Khối đang chọn
+  const availableClasses = Array.from(
+    new Set(
+      studentsList
+        .filter((s) => s.category === selectedCategory && s.grade === selectedGrade)
+        .map((s) => s.class_name?.trim())
+        .filter(Boolean)
+    )
+  ).sort();
+
+  // Lấy danh sách điểm các bài kiểm tra của 1 học sinh (Khớp theo Mã HS 3 số hoặc Họ tên)
+  const getStudentTestScores = (stu) => {
+    return allSubmissions.filter((sub) => {
+      const nameStr = (sub.student_name || '').toLowerCase();
+      const codeStr = (stu.student_code || '').toLowerCase();
+      const fullNameStr = (stu.full_name || '').toLowerCase();
+      return (
+        nameStr.startsWith(`${codeStr} -`) ||
+        nameStr.includes(`[${codeStr}]`) ||
+        (nameStr === fullNameStr && (sub.student_class || '').includes(stu.class_name))
+      );
+    });
+  };
+
+  // Giáo viên nhập bổ sung điểm kiểm tra trực tiếp cho học sinh tại Tab 6
+  const handleQuickAddScore = async (stu) => {
+    const testName = window.prompt(`Nhập tên bài kiểm tra cho em [${stu.student_code}] ${stu.full_name}:`, 'Kiểm tra 15 phút');
+    if (!testName) return;
+    const scoreInput = window.prompt(`Nhập điểm số (thang 10) của bài "${testName}":`, '9.0');
+    if (scoreInput === null || scoreInput.trim() === '') return;
+    const numericScore = parseFloat(scoreInput.replace(',', '.'));
+    if (isNaN(numericScore)) return alert('Điểm số không hợp lệ!');
+
+    const { error } = await supabase.from('submissions').insert([{
+      exercise_id: null,
+      student_name: `${stu.student_code} - ${stu.full_name}`,
+      student_class: `${testName.trim()} | ${stu.class_name}`,
+      score: numericScore,
+      total_correct: 0,
+      total_questions: 0
+    }]);
+
+    if (error) alert('Lỗi nhập điểm: ' + error.message);
+    else fetchData();
+  };
+
+  // Xử lý đọc trực tiếp file Excel (.xlsx, .xls, .csv) thành danh sách học sinh
+  const handleExcelFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!window.XLSX) return alert('Thư viện đọc Excel đang tải, vui lòng thử lại sau 2 giây!');
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = window.XLSX.read(data);
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = window.XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+      // Tự động lọc các dòng có dữ liệu (Họ tên, Lớp, SĐT, Mật khẩu)
+      const defaultCls = selectedClassFilter !== 'ALL' ? selectedClassFilter : (newStuClass || `10A1`);
+      const formattedLines = [];
+
+      rows.forEach((row, idx) => {
+        if (!row || row.length === 0) return;
+        const firstCell = String(row[0] || '').trim();
+        // Bỏ qua dòng tiêu đề đầu bảng
+        if (idx === 0 && /stt|họ\s*và\s*tên|họ\s*tên|mã\s*hs/i.test(firstCell)) return;
+
+        // Nếu cột 1 là STT (số) thì lấy cột 2 làm Họ tên
+        let fullName = '';
+        let className = defaultCls;
+        let phone = '';
+        let pass = '123456';
+
+        if (/^\d+$/.test(firstCell) && row.length >= 2) {
+          fullName = String(row[1] || '').trim();
+          className = String(row[2] || defaultCls).trim();
+          phone = String(row[3] || '').trim();
+          pass = String(row[4] || '123456').trim();
+        } else {
+          fullName = firstCell;
+          className = String(row[1] || defaultCls).trim();
+          phone = String(row[2] || '').trim();
+          pass = String(row[3] || '123456').trim();
+        }
+
+        if (fullName) {
+          formattedLines.push(`${fullName} | ${className} | ${phone} | ${pass}`);
+        }
+      });
+
+      setBulkImportText(formattedLines.join('\n'));
+      setShowBulkModal(true);
+    } catch (err) {
+      alert('Không thể đọc file Excel: ' + err.message);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // Lưu hàng loạt danh sách học sinh vào Supabase (Tự động cấp mã 3 số liên tiếp)
+  const handleConfirmBulkImport = async () => {
+    const lines = bulkImportText.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return alert('Danh sách trống!');
+
+    // Tìm mã 3 số lớn nhất hiện tại để đánh số tiếp theo
+    let currentMax = studentsList.reduce((max, s) => {
+      const n = parseInt(s.student_code, 10);
+      return !isNaN(n) && n > max ? n : max;
+    }, 0);
+
+    const defaultCls = selectedClassFilter !== 'ALL' 
+      ? selectedClassFilter 
+      : (newStuClass.trim() || (uploadCategory === 'school' ? `${selectedGrade}A1` : `Toán ${selectedGrade} - Ca 1`));
+
+    const newRecords = lines.map((line) => {
+      // Hỗ trợ ngăn cách bằng dấu | hoặc phím Tab (khi copy trực tiếp từ Excel dán vào) hoặc dấu phẩy
+      const parts = line.includes('|') 
+        ? line.split('|').map((p) => p.trim())
+        : line.includes('\t')
+        ? line.split('\t').map((p) => p.trim())
+        : line.split(',').map((p) => p.trim());
+
+      currentMax = currentMax >= 999 ? 0 : currentMax + 1;
+      const code3Digits = String(currentMax).padStart(3, '0');
+
+      return {
+        student_code: code3Digits,
+        full_name: parts[0] || 'Học sinh mới',
+        class_name: parts[1] || defaultCls,
+        phone: parts[2] || '',
+        password: parts[3] || '123456',
+        grade: selectedGrade,
+        category: uploadCategory
+      };
+    });
+
+    const { error } = await supabase.from('student_accounts').insert(newRecords);
+    if (error) {
+      alert('Lỗi khi nhập hàng loạt: ' + error.message);
+    } else {
+      alert(`Đã tạo thành công ${newRecords.length} tài khoản học sinh vào [${uploadCategory === 'school' ? 'Lớp Trường' : 'Lớp Nhà'} - Khối ${selectedGrade}]!`);
+      setBulkImportText('');
+      setShowBulkModal(false);
+      setSelectedCategory(uploadCategory);
+      fetchData();
+    }
+  };
+  
   const handleCreateStudentAccount = async (e) => {
     e.preventDefault();
     if (!newStuName.trim() || !newStuClass.trim() || !newStuCode.trim()) {
@@ -2145,144 +2305,308 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           </div>
         )}
 
-        {/* ==================== TAB 6: QUẢN LÝ TÀI KHOẢN HỌC SINH (TRƯỜNG / NHÀ) ==================== */}
+        {/* ==================== TAB 6: QUẢN LÝ LỚP, TÀI KHOẢN & ĐIỂM KIỂM TRA HỌC SINH ==================== */}
         {activeTab === 'students' && isTeacher && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 bg-slate-50 p-4 rounded-2xl min-h-[80vh]">
-            {/* Cột trái: Form cấp tài khoản học sinh mới */}
-            <form onSubmit={handleCreateStudentAccount} className="lg:col-span-4 bg-white p-5 rounded-2xl shadow-sm border space-y-3.5 h-fit">
-              <h3 className="font-extrabold text-indigo-800 text-base border-b pb-2">
-                + Cấp Tài Khoản Học Sinh Mới (Khối {selectedGrade})
-              </h3>
-
-              <CategorySelectorPill />
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-xs font-bold text-slate-600 block mb-1">Mã HS (3 số):</label>
-                  <input
-                    type="text"
-                    required
-                    value={newStuCode}
-                    onChange={(e) => setNewStuCode(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-xl text-sm font-extrabold text-indigo-700 bg-indigo-50/50"
-                    placeholder="001"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600 block mb-1">Mật khẩu:</label>
-                  <input
-                    type="text"
-                    required
-                    value={newStuPassword}
-                    onChange={(e) => setNewStuPassword(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-xl text-sm font-mono"
-                    placeholder="123456"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-600 block mb-1">Họ và tên học sinh:</label>
-                <input
-                  type="text"
-                  required
-                  value={newStuName}
-                  onChange={(e) => setNewStuName(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-xl text-sm"
-                  placeholder="VD: Nguyễn Văn A"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-xs font-bold text-slate-600 block mb-1">Tên Lớp:</label>
-                  <input
-                    type="text"
-                    required
-                    value={newStuClass}
-                    onChange={(e) => setNewStuClass(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-xl text-sm"
-                    placeholder={uploadCategory === 'school' ? 'VD: 10A1' : 'VD: Toán 10 - Ca 1'}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600 block mb-1">Số điện thoại (Tùy chọn):</label>
-                  <input
-                    type="text"
-                    value={newStuPhone}
-                    onChange={(e) => setNewStuPhone(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-xl text-sm"
-                    placeholder="09xx..."
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-[#2563eb] hover:bg-blue-700 text-white font-extrabold py-2.5 rounded-xl text-sm shadow"
-              >
-                Tạo Tài Khoản Học Sinh ({uploadCategory === 'school' ? '🏫 Trường' : '🏠 Nhà'})
-              </button>
-            </form>
-
-            {/* Cột phải: Danh sách tài khoản học sinh */}
-            <div className="lg:col-span-8 bg-white p-5 rounded-2xl shadow-sm border space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
-                <h3 className="font-extrabold text-slate-800 text-base">
-                  Danh sách Học sinh ({studentsList.filter(s => s.category === selectedCategory && s.grade === selectedGrade).length} em thuộc {selectedCategory === 'school' ? '🏫 Lớp Trường' : '🏠 Lớp Nhà'} - Khối {selectedGrade})
-                </h3>
-                <span className="text-xs text-slate-500">
-                  (Bấm nút Lớp Trường / Lớp Nhà hoặc K10/K11/K12 trên thanh Header để lọc danh sách)
+          <div className="space-y-4 bg-slate-50 p-4 rounded-2xl min-h-[82vh]">
+            {/* THANH QUẢN LÝ LỚP HỌC & CÔNG CỤ NHẬP DANH SÁCH HÀNG LOẠT */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mr-1">
+                  🏫 Quản lý theo Lớp ({selectedCategory === 'school' ? 'Hệ Trường' : 'Hệ Nhà'} - K{selectedGrade}):
                 </span>
+                <button
+                  onClick={() => setSelectedClassFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition ${
+                    selectedClassFilter === 'ALL'
+                      ? 'bg-[#2563eb] text-white shadow'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Tất cả lớp ({studentsList.filter(s => s.category === selectedCategory && s.grade === selectedGrade).length})
+                </button>
+                {availableClasses.map((clsName) => {
+                  const countInClass = studentsList.filter(
+                    (s) => s.category === selectedCategory && s.grade === selectedGrade && s.class_name?.trim() === clsName
+                  ).length;
+                  return (
+                    <button
+                      key={clsName}
+                      onClick={() => {
+                        setSelectedClassFilter(clsName);
+                        setNewStuClass(clsName);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition ${
+                        selectedClassFilter === clsName
+                          ? 'bg-amber-500 text-slate-950 shadow'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      Lớp {clsName} ({countInClass})
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs sm:text-sm text-left">
-                  <thead className="bg-slate-100 text-slate-700 font-bold">
-                    <tr>
-                      <th className="p-2.5 rounded-l-lg">Mã HS</th>
-                      <th className="p-2.5">Họ và tên</th>
-                      <th className="p-2.5">Lớp</th>
-                      <th className="p-2.5">Phân hệ</th>
-                      <th className="p-2.5">Mật khẩu</th>
-                      <th className="p-2.5 rounded-r-lg text-right">Xóa</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {studentsList
-                      .filter((s) => s.category === selectedCategory && s.grade === selectedGrade)
-                      .map((stu) => (
-                        <tr key={stu.id} className="hover:bg-slate-50">
-                          <td className="p-2.5 font-extrabold text-indigo-700">{stu.student_code}</td>
-                          <td className="p-2.5 font-semibold text-slate-800">{stu.full_name}</td>
-                          <td className="p-2.5 text-slate-600">{stu.class_name}</td>
-                          <td className="p-2.5">
-                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                              stu.category === 'school' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'
-                            }`}>
-                              {stu.category === 'school' ? '🏫 Trường' : '🏠 Nhà'} • K{stu.grade}
-                            </span>
-                          </td>
-                          <td className="p-2.5 font-mono text-slate-600">{stu.password}</td>
-                          <td className="p-2.5 text-right">
-                            <button
-                              onClick={async () => {
-                                if (window.confirm(`Xóa tài khoản học sinh [${stu.student_code}] ${stu.full_name}?`)) {
-                                  await supabase.from('student_accounts').delete().eq('id', stu.id);
-                                  fetchData();
-                                }
-                              }}
-                              className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
+              {/* Cụm nút Nhập danh sách từ Excel / Dán nhanh */}
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs cursor-pointer shadow transition">
+                  <FileUp className="w-4 h-4" />
+                  <span>📥 Nhập từ File Excel</span>
+                  <input type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelFileUpload} className="hidden" />
+                </label>
+
+                <button
+                  onClick={() => setShowBulkModal(true)}
+                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs shadow transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>📋 Dán danh sách nhanh</span>
+                </button>
               </div>
             </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Cột trái: Cấp lẻ từng tài khoản học sinh */}
+              <form onSubmit={handleCreateStudentAccount} className="lg:col-span-3 bg-white p-4 rounded-2xl shadow-sm border space-y-3 h-fit">
+                <h3 className="font-extrabold text-indigo-800 text-sm border-b pb-2">
+                  + Thêm Học Sinh Mới (K{selectedGrade})
+                </h3>
+
+                <CategorySelectorPill />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Mã HS (3 số):</label>
+                    <input
+                      type="text"
+                      required
+                      value={newStuCode}
+                      onChange={(e) => setNewStuCode(e.target.value)}
+                      className="w-full px-3 py-1.5 border rounded-xl text-sm font-extrabold text-indigo-700 bg-indigo-50/50"
+                      placeholder="001"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Mật khẩu:</label>
+                    <input
+                      type="text"
+                      required
+                      value={newStuPassword}
+                      onChange={(e) => setNewStuPassword(e.target.value)}
+                      className="w-full px-3 py-1.5 border rounded-xl text-sm font-mono"
+                      placeholder="123456"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">Họ và tên học sinh:</label>
+                  <input
+                    type="text"
+                    required
+                    value={newStuName}
+                    onChange={(e) => setNewStuName(e.target.value)}
+                    className="w-full px-3 py-1.5 border rounded-xl text-sm"
+                    placeholder="VD: Nguyễn Văn A"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Tên Lớp:</label>
+                    <input
+                      type="text"
+                      required
+                      value={newStuClass}
+                      onChange={(e) => setNewStuClass(e.target.value)}
+                      className="w-full px-3 py-1.5 border rounded-xl text-sm font-semibold"
+                      placeholder={uploadCategory === 'school' ? 'VD: 10A1' : 'VD: Ca 1'}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">SĐT:</label>
+                    <input
+                      type="text"
+                      value={newStuPhone}
+                      onChange={(e) => setNewStuPhone(e.target.value)}
+                      className="w-full px-3 py-1.5 border rounded-xl text-sm"
+                      placeholder="09xx..."
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-[#2563eb] hover:bg-blue-700 text-white font-extrabold py-2 rounded-xl text-xs sm:text-sm shadow"
+                >
+                  + Thêm vào Lớp {newStuClass || ''}
+                </button>
+              </form>
+
+              {/* Cột phải: Bảng danh sách học sinh theo Lớp + Cột Điểm Bài Kiểm Tra */}
+              <div className="lg:col-span-9 bg-white p-4 rounded-2xl shadow-sm border space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
+                  <div>
+                    <h3 className="font-extrabold text-slate-800 text-sm sm:text-base">
+                      Danh sách Học sinh & Điểm Kiểm Tra — {selectedClassFilter === 'ALL' ? 'Tất cả lớp' : `Lớp ${selectedClassFilter}`} ({selectedCategory === 'school' ? '🏫 Hệ Trường' : '🏠 Hệ Nhà'} • Khối {selectedGrade})
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Điểm học sinh làm ở Tab Bài tập sẽ tự động hiển thị tại cột Điểm bài kiểm tra (hoặc bấm "+ Điểm" để nhập điểm trên lớp).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs sm:text-sm text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold">
+                      <tr>
+                        <th className="p-2.5 rounded-l-lg">STT</th>
+                        <th className="p-2.5">Mã HS</th>
+                        <th className="p-2.5">Họ và tên</th>
+                        <th className="p-2.5">Lớp</th>
+                        <th className="p-2.5">Điểm bài kiểm tra (Tab Bài tập & Trên lớp)</th>
+                        <th className="p-2.5">Mật khẩu</th>
+                        <th className="p-2.5 rounded-r-lg text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {studentsList
+                        .filter(
+                          (s) =>
+                            s.category === selectedCategory &&
+                            s.grade === selectedGrade &&
+                            (selectedClassFilter === 'ALL' || s.class_name?.trim() === selectedClassFilter)
+                        )
+                        .map((stu, idx) => {
+                          const stuScores = getStudentTestScores(stu);
+                          return (
+                            <tr key={stu.id} className="hover:bg-slate-50 align-middle">
+                              <td className="p-2.5 text-slate-400 font-bold">{idx + 1}</td>
+                              <td className="p-2.5 font-extrabold text-indigo-700">{stu.student_code}</td>
+                              <td className="p-2.5 font-bold text-slate-800">
+                                <div>{stu.full_name}</div>
+                                {stu.phone && <div className="text-[10px] text-slate-400 font-normal">📞 {stu.phone}</div>}
+                              </td>
+                              <td className="p-2.5">
+                                <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${
+                                  stu.category === 'school' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'
+                                }`}>
+                                  {stu.class_name}
+                                </span>
+                              </td>
+                              <td className="p-2.5">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {stuScores.length === 0 ? (
+                                    <span className="text-[11px] text-slate-400 italic">Chưa có cột điểm</span>
+                                  ) : (
+                                    stuScores.map((sc) => {
+                                      const testTitle = sc.exercises?.title || (sc.student_class?.includes('|') ? sc.student_class.split('|')[0].trim() : 'Bài KT');
+                                      return (
+                                        <span
+                                          key={sc.id}
+                                          title={`${testTitle}: ${sc.score} điểm`}
+                                          className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg text-[11px]"
+                                        >
+                                          <span className="text-slate-600 truncate max-w-[110px]">{testTitle}:</span>
+                                          <strong className="text-indigo-700 font-extrabold">{sc.score}đ</strong>
+                                        </span>
+                                      );
+                                    })
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickAddScore(stu)}
+                                    className="text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-2 py-0.5 rounded-md transition"
+                                    title="Nhập thêm điểm kiểm tra cho học sinh này"
+                                  >
+                                    + Điểm
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="p-2.5 font-mono text-xs text-slate-500">{stu.password}</td>
+                              <td className="p-2.5 text-right">
+                                <button
+                                  onClick={async () => {
+                                    if (window.confirm(`Xóa tài khoản học sinh [${stu.student_code}] ${stu.full_name}?`)) {
+                                      await supabase.from('student_accounts').delete().eq('id', stu.id);
+                                      fetchData();
+                                    }
+                                  }}
+                                  className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* MODAL DÁN NHANH / KIỂM TRA DANH SÁCH TRƯỚC KHI NHẬP HÀNG LOẠT */}
+            {showBulkModal && (
+              <div className="fixed inset-0 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-2xl p-5 w-full max-w-2xl space-y-4 shadow-2xl">
+                  <div className="flex items-center justify-between border-b pb-2.5">
+                    <div>
+                      <h3 className="font-extrabold text-base text-indigo-800">
+                        📥 Nhập Danh Sách Học Sinh Hàng Loạt (Khối {selectedGrade})
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Hệ thống tự động cấp Mã học sinh 3 số liên tiếp (001 ➔ 999). Bạn có thể copy trực tiếp các cột từ Excel dán vào đây.
+                      </p>
+                    </div>
+                    <button onClick={() => setShowBulkModal(false)} className="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
+                    <CategorySelectorPill />
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-600 shrink-0">Lớp mặc định:</span>
+                      <input
+                        type="text"
+                        placeholder={uploadCategory === 'school' ? 'VD: 10A1' : 'VD: Ca 1'}
+                        value={newStuClass}
+                        onChange={(e) => setNewStuClass(e.target.value)}
+                        className="w-full px-3 py-1.5 border rounded-lg text-xs font-bold bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-600 bg-amber-50 border border-amber-200 p-2.5 rounded-xl">
+                    💡 <strong>Cú pháp mỗi dòng 1 học sinh:</strong> <code>Họ và tên | Lớp | SĐT | Mật khẩu</code> (Nếu chỉ gõ mỗi <strong>Họ và tên</strong> trên 1 dòng, hệ thống sẽ tự lấy Lớp mặc định ở trên và mật khẩu mặc định là <code>123456</code>).
+                  </div>
+
+                  <textarea
+                    rows={10}
+                    value={bulkImportText}
+                    onChange={(e) => setBulkImportText(e.target.value)}
+                    placeholder={`Nguyễn Văn An | 10A1 | 0912345678 | 123456\nTrần Thị Bình | 10A1\nLê Hoàng Cường`}
+                    className="w-full p-3 border rounded-xl text-xs sm:text-sm font-mono"
+                  />
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkModal(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmBulkImport}
+                      className="px-5 py-2 rounded-xl text-xs sm:text-sm font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow"
+                    >
+                      ✓ Xác nhận Tạo Hàng Loạt
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
