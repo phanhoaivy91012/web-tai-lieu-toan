@@ -819,6 +819,10 @@ export default function App() {
   const [allSubmissions, setAllSubmissions] = useState([]);              // Lưu toàn bộ điểm bài kiểm tra
   const [bulkImportText, setBulkImportText] = useState('');              // Khung dán nhanh danh sách từ Excel/Word
   const [showBulkModal, setShowBulkModal] = useState(false);             // Bật/tắt bảng nhập hàng loạt
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [oldPassInput, setOldPassInput] = useState('');
+  const [newPassInput, setNewPassInput] = useState('');
+  const [confirmPassInput, setConfirmPassInput] = useState('');
 
   // State cho Tab 5: Chuyển PDF & Ảnh ➔ Slide HTML
   const [converterTitle, setConverterTitle] = useState('');
@@ -936,15 +940,16 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       setAllSubmissions(subData || []);
 
       // Tự động tính mã 3 số tiếp theo (001 -> 999, quá 999 reset về 000)
+      // Tự động tính mã 4 số tiếp theo (0001 -> 9999, quá 9999 reset về 0000)
       if (stuData && stuData.length > 0) {
         const maxNum = stuData.reduce((max, s) => {
           const n = parseInt(s.student_code, 10);
           return !isNaN(n) && n > max ? n : max;
         }, 0);
-        const nextNum = maxNum >= 999 ? 0 : maxNum + 1;
-        setNewStuCode(String(nextNum).padStart(3, '0'));
+        const nextNum = maxNum >= 9999 ? 0 : maxNum + 1;
+        setNewStuCode(String(nextNum).padStart(4, '0'));
       } else {
-        setNewStuCode('001');
+        setNewStuCode('0001');
       }
     }   
   }
@@ -955,7 +960,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return match ? match[0] : input.trim();
   };
 
-  // ================= XỬ LÝ ĐĂNG NHẬP HỌC SINH & GIÁO VIÊN =================
+  // ================= XỬ LÝ ĐĂNG NHẬP HỌC SINH (MÃ 4 SỐ) & GIÁO VIÊN =================
   const handleUnifiedLogin = async (e) => {
     e.preventDefault();
     if (loginMode === 'teacher') {
@@ -967,21 +972,20 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       setLoginId('');
       setPassword('');
     } else {
-      // Học sinh đăng nhập bằng Mã HS 3 số (VD: 001 hoặc nhập 1 tự hiểu là 001)
+      // Học sinh đăng nhập bằng Mã HS 4 số (VD: gõ 1 hoặc 0001 đều tự hiểu là 0001)
       const rawCode = loginId.trim();
-      const paddedCode = /^\d+$/.test(rawCode) && rawCode.length < 3 
-        ? rawCode.padStart(3, '0') 
-        : rawCode;
+      const padded4Code = /^\d+$/.test(rawCode) ? rawCode.padStart(4, '0').slice(-4) : rawCode;
+      const padded3Code = /^\d+$/.test(rawCode) ? rawCode.padStart(3, '0') : rawCode;
 
       const { data: stu, error } = await supabase
         .from('student_accounts')
         .select('*')
-        .or(`student_code.eq.${rawCode},student_code.eq.${paddedCode}`)
+        .or(`student_code.eq.${rawCode},student_code.eq.${padded4Code},student_code.eq.${padded3Code}`)
         .eq('password', password.trim())
         .maybeSingle();
 
       if (error || !stu) {
-        return alert('Sai Mã học sinh hoặc Mật khẩu! Em vui lòng kiểm tra lại.');
+        return alert('Sai Mã học sinh (4 số) hoặc Mật khẩu! Em vui lòng kiểm tra lại.');
       }
       setCurrentStudent(stu);
       localStorage.setItem('vy_student_session', JSON.stringify(stu));
@@ -991,9 +995,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   };
 
   const handleLogout = async () => {
-    if (isTeacher) {
-      await supabase.auth.signOut();
-    }
+    if (isTeacher) await supabase.auth.signOut();
     if (currentStudent) {
       setCurrentStudent(null);
       localStorage.removeItem('vy_student_session');
@@ -1001,9 +1003,68 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     setActiveTab('lessons');
   };
 
-  // ================= QUẢN LÝ TÀI KHOẢN HỌC SINH (TAB 6 CỦA GIÁO VIÊN) =================
+  // ================= ĐỔI MẬT KHẨU CHO CẢ HỌC SINH & GIÁO VIÊN =================
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (!newPassInput.trim() || newPassInput.trim().length < 4) {
+      return alert('Mật khẩu mới phải có ít nhất 4 ký tự!');
+    }
+    if (newPassInput.trim() !== confirmPassInput.trim()) {
+      return alert('Mật khẩu xác nhận không khớp!');
+    }
 
-  // Lấy danh sách các Lớp hiện có thuộc Phân hệ (Trường/Nhà) và Khối đang chọn
+    if (isTeacher) {
+      // Giáo viên đổi mật khẩu qua Supabase Auth (Yêu cầu từ 6 ký tự trở lên)
+      if (newPassInput.trim().length < 6) {
+        return alert('Mật khẩu Giáo viên cần tối thiểu 6 ký tự!');
+      }
+      const { error } = await supabase.auth.updateUser({ password: newPassInput.trim() });
+      if (error) return alert('Lỗi đổi mật khẩu Giáo viên: ' + error.message);
+      alert('Đã đổi mật khẩu Giáo viên thành công!');
+    } else if (currentStudent) {
+      // Học sinh đổi mật khẩu: Kiểm tra mật khẩu hiện tại trước
+      if (oldPassInput.trim() !== currentStudent.password) {
+        return alert('Mật khẩu hiện tại không đúng!');
+      }
+      const { error } = await supabase
+        .from('student_accounts')
+        .update({ password: newPassInput.trim() })
+        .eq('id', currentStudent.id);
+
+      if (error) return alert('Lỗi khi đổi mật khẩu: ' + error.message);
+      const updatedStu = { ...currentStudent, password: newPassInput.trim() };
+      setCurrentStudent(updatedStu);
+      localStorage.setItem('vy_student_session', JSON.stringify(updatedStu));
+      alert('Em đã đổi mật khẩu thành công!');
+    }
+
+    setOldPassInput('');
+    setNewPassInput('');
+    setConfirmPassInput('');
+    setShowPasswordModal(false);
+  };
+
+  // ================= GIÁO VIÊN RESET MẬT KHẨU CHO HỌC SINH =================
+  const handleResetStudentPassword = async (stu) => {
+    const newPass = window.prompt(
+      `Nhập mật khẩu mới để Reset cho học sinh [${stu.student_code}] ${stu.full_name}:`,
+      '123456'
+    );
+    if (newPass === null || !newPass.trim()) return;
+
+    const { error } = await supabase
+      .from('student_accounts')
+      .update({ password: newPass.trim() })
+      .eq('id', stu.id);
+
+    if (error) {
+      alert('Lỗi reset mật khẩu: ' + error.message);
+    } else {
+      alert(`Đã reset mật khẩu của em [${stu.student_code}] ${stu.full_name} thành: ${newPass.trim()}`);
+      fetchData();
+    }
+  };
+
   const availableClasses = Array.from(
     new Set(
       studentsList
@@ -1013,7 +1074,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     )
   ).sort();
 
-  // Lấy danh sách điểm các bài kiểm tra của 1 học sinh (Khớp theo Mã HS 3 số hoặc Họ tên)
   const getStudentTestScores = (stu) => {
     return allSubmissions.filter((sub) => {
       const nameStr = (sub.student_name || '').toLowerCase();
@@ -1027,7 +1087,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     });
   };
 
-  // Giáo viên nhập bổ sung điểm kiểm tra trực tiếp cho học sinh tại Tab 6
   const handleQuickAddScore = async (stu) => {
     const testName = window.prompt(`Nhập tên bài kiểm tra cho em [${stu.student_code}] ${stu.full_name}:`, 'Kiểm tra 15 phút');
     if (!testName) return;
@@ -1049,7 +1108,28 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     else fetchData();
   };
 
-  // Xử lý đọc trực tiếp file Excel (.xlsx, .xls, .csv) thành danh sách học sinh
+  // ================= TẢI FILE EXCEL MẪU CHUẨN (.XLSX) ĐỂ NHẬP KHÔNG BAO GIỜ LỆCH CỘT =================
+  const handleDownloadSampleExcel = () => {
+    if (!window.XLSX) return alert('Thư viện Excel đang tải, vui lòng thử lại sau 2 giây!');
+    const sampleDefaultClass = selectedClassFilter !== 'ALL' 
+      ? selectedClassFilter 
+      : (selectedCategory === 'school' ? `${selectedGrade}A1` : `Toán ${selectedGrade} - Ca 1`);
+
+    const wsData = [
+      ['Mã HS (4 số - Để trống sẽ tự cấp)', 'Họ và tên', 'Lớp', 'Số điện thoại', 'Mật khẩu'],
+      ['0001', 'Nguyễn Văn An', sampleDefaultClass, '0912345678', '123456'],
+      ['0002', 'Trần Thị Bình', sampleDefaultClass, '0987654321', '123456'],
+      ['', 'Lê Hoàng Cường', sampleDefaultClass, '0909123456', '123456']
+    ];
+
+    const ws = window.XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{ wch: 28 }, { wch: 25 }, { wch: 16 }, { wch: 16 }, { wch: 14 }];
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Danh_Sach_Hoc_Sinh');
+    window.XLSX.writeFile(wb, `Mau_Nhap_Hoc_Sinh_Khoi_${selectedGrade}.xlsx`);
+  };
+
+  // Đọc file Excel theo đúng cấu trúc File Mẫu (Hoặc bảng danh sách lớp bất kỳ)
   const handleExcelFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1059,40 +1139,46 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       const data = await file.arrayBuffer();
       const workbook = window.XLSX.read(data);
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = window.XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+      const rows = window.XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
 
-      // Tự động lọc các dòng có dữ liệu (Họ tên, Lớp, SĐT, Mật khẩu)
-      const defaultCls = selectedClassFilter !== 'ALL' ? selectedClassFilter : (newStuClass || `10A1`);
+      if (rows.length === 0) return alert('File Excel trống!');
+
+      // Nhận diện vị trí các cột dựa trên dòng tiêu đề đầu tiên
+      const headerRow = (rows[0] || []).map((c) => String(c || '').toLowerCase().trim());
+      const hasHeader = headerRow.some((h) => /họ|tên|lớp|mã|stt|sđt|điện thoại|mật khẩu/.test(h));
+
+      let idxCode = headerRow.findIndex((h) => /mã\s*hs|mã\s*học\s*sinh|mã\s*số/.test(h));
+      let idxName = headerRow.findIndex((h) => /họ\s*và\s*tên|họ\s*tên|tên/.test(h));
+      let idxClass = headerRow.findIndex((h) => /^lớp|tên\s*lớp/.test(h));
+      let idxPhone = headerRow.findIndex((h) => /điện\s*thoại|sđt|phone/.test(h));
+      let idxPass = headerRow.findIndex((h) => /mật\s*khẩu|pass/.test(h));
+
+      // Nếu đúng chuẩn File Mẫu 5 cột: [Mã HS, Họ và tên, Lớp, SĐT, Mật khẩu]
+      if (idxName === -1) {
+        idxCode = 0; idxName = 1; idxClass = 2; idxPhone = 3; idxPass = 4;
+      }
+
+      const defaultCls = selectedClassFilter !== 'ALL' 
+        ? selectedClassFilter 
+        : (newStuClass || (selectedCategory === 'school' ? `${selectedGrade}A1` : `Ca 1`));
+
       const formattedLines = [];
+      const startRow = hasHeader ? 1 : 0;
 
-      rows.forEach((row, idx) => {
-        if (!row || row.length === 0) return;
-        const firstCell = String(row[0] || '').trim();
-        // Bỏ qua dòng tiêu đề đầu bảng
-        if (idx === 0 && /stt|họ\s*và\s*tên|họ\s*tên|mã\s*hs/i.test(firstCell)) return;
+      for (let i = startRow; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.every((cell) => String(cell).trim() === '')) continue;
 
-        // Nếu cột 1 là STT (số) thì lấy cột 2 làm Họ tên
-        let fullName = '';
-        let className = defaultCls;
-        let phone = '';
-        let pass = '123456';
+        const rawCode = idxCode >= 0 ? String(row[idxCode] || '').trim() : '';
+        const fullName = idxName >= 0 ? String(row[idxName] || '').trim() : String(row[0] || '').trim();
+        const className = (idxClass >= 0 ? String(row[idxClass] || '').trim() : '') || defaultCls;
+        const phone = idxPhone >= 0 ? String(row[idxPhone] || '').trim() : '';
+        const pass = (idxPass >= 0 ? String(row[idxPass] || '').trim() : '') || '123456';
 
-        if (/^\d+$/.test(firstCell) && row.length >= 2) {
-          fullName = String(row[1] || '').trim();
-          className = String(row[2] || defaultCls).trim();
-          phone = String(row[3] || '').trim();
-          pass = String(row[4] || '123456').trim();
-        } else {
-          fullName = firstCell;
-          className = String(row[1] || defaultCls).trim();
-          phone = String(row[2] || '').trim();
-          pass = String(row[3] || '123456').trim();
-        }
-
-        if (fullName) {
-          formattedLines.push(`${fullName} | ${className} | ${phone} | ${pass}`);
-        }
-      });
+        if (!fullName) continue;
+        const cleanCode = /^\d+$/.test(rawCode) ? rawCode.padStart(4, '0').slice(-4) : 'AUTO';
+        formattedLines.push(`${cleanCode} | ${fullName} | ${className} | ${phone} | ${pass}`);
+      }
 
       setBulkImportText(formattedLines.join('\n'));
       setShowBulkModal(true);
@@ -1103,12 +1189,11 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   };
 
-  // Lưu hàng loạt danh sách học sinh vào Supabase (Tự động cấp mã 3 số liên tiếp)
+  // Lưu hàng loạt danh sách học sinh (Hỗ trợ Mã HS 4 chữ số: 0001 -> 9999)
   const handleConfirmBulkImport = async () => {
     const lines = bulkImportText.split('\n').map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) return alert('Danh sách trống!');
 
-    // Tìm mã 3 số lớn nhất hiện tại để đánh số tiếp theo
     let currentMax = studentsList.reduce((max, s) => {
       const n = parseInt(s.student_code, 10);
       return !isNaN(n) && n > max ? n : max;
@@ -1119,22 +1204,47 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       : (newStuClass.trim() || (uploadCategory === 'school' ? `${selectedGrade}A1` : `Toán ${selectedGrade} - Ca 1`));
 
     const newRecords = lines.map((line) => {
-      // Hỗ trợ ngăn cách bằng dấu | hoặc phím Tab (khi copy trực tiếp từ Excel dán vào) hoặc dấu phẩy
       const parts = line.includes('|') 
         ? line.split('|').map((p) => p.trim())
         : line.includes('\t')
         ? line.split('\t').map((p) => p.trim())
         : line.split(',').map((p) => p.trim());
 
-      currentMax = currentMax >= 999 ? 0 : currentMax + 1;
-      const code3Digits = String(currentMax).padStart(3, '0');
+      // Nếu cột 1 là Mã 4 số hoặc 'AUTO' (từ file Excel mẫu), ngược lại nếu chỉ gõ Họ tên ở cột 1
+      let stuCode = '';
+      let fullName = '';
+      let className = defaultCls;
+      let phone = '';
+      let password = '123456';
+
+      if (parts.length >= 2 && (/^\d+$/.test(parts[0]) || parts[0].toUpperCase() === 'AUTO')) {
+        if (/^\d+$/.test(parts[0])) {
+          stuCode = parts[0].padStart(4, '0').slice(-4);
+          const numVal = parseInt(stuCode, 10);
+          if (numVal > currentMax) currentMax = numVal;
+        } else {
+          currentMax = currentMax >= 9999 ? 0 : currentMax + 1;
+          stuCode = String(currentMax).padStart(4, '0');
+        }
+        fullName = parts[1] || 'Học sinh mới';
+        className = parts[2] || defaultCls;
+        phone = parts[3] || '';
+        password = parts[4] || '123456';
+      } else {
+        currentMax = currentMax >= 9999 ? 0 : currentMax + 1;
+        stuCode = String(currentMax).padStart(4, '0');
+        fullName = parts[0] || 'Học sinh mới';
+        className = parts[1] || defaultCls;
+        phone = parts[2] || '';
+        password = parts[3] || '123456';
+      }
 
       return {
-        student_code: code3Digits,
-        full_name: parts[0] || 'Học sinh mới',
-        class_name: parts[1] || defaultCls,
-        phone: parts[2] || '',
-        password: parts[3] || '123456',
+        student_code: stuCode,
+        full_name: fullName,
+        class_name: className,
+        phone: phone,
+        password: password,
         grade: selectedGrade,
         category: uploadCategory
       };
@@ -1142,23 +1252,24 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
 
     const { error } = await supabase.from('student_accounts').insert(newRecords);
     if (error) {
-      alert('Lỗi khi nhập hàng loạt: ' + error.message);
+      alert('Lỗi khi nhập hàng loạt (Kiểm tra trùng Mã HS): ' + error.message);
     } else {
-      alert(`Đã tạo thành công ${newRecords.length} tài khoản học sinh vào [${uploadCategory === 'school' ? 'Lớp Trường' : 'Lớp Nhà'} - Khối ${selectedGrade}]!`);
+      alert(`Đã tạo thành công ${newRecords.length} tài khoản học sinh (Mã 4 số) vào [${uploadCategory === 'school' ? 'Lớp Trường' : 'Lớp Nhà'} - Khối ${selectedGrade}]!`);
       setBulkImportText('');
       setShowBulkModal(false);
       setSelectedCategory(uploadCategory);
       fetchData();
     }
   };
-  
+
+  // Tạo lẻ 1 tài khoản học sinh (Mã 4 chữ số: 0001 -> 9999)
   const handleCreateStudentAccount = async (e) => {
     e.preventDefault();
     if (!newStuName.trim() || !newStuClass.trim() || !newStuCode.trim()) {
-      return alert('Vui lòng nhập đầy đủ Mã HS, Họ tên và Lớp!');
+      return alert('Vui lòng nhập đầy đủ Mã HS (4 số), Họ tên và Lớp!');
     }
     const formattedCode = /^\d+$/.test(newStuCode.trim()) 
-      ? newStuCode.trim().padStart(3, '0').slice(-3) 
+      ? newStuCode.trim().padStart(4, '0').slice(-4) 
       : newStuCode.trim();
 
     const { error } = await supabase.from('student_accounts').insert([{
@@ -1167,7 +1278,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       full_name: newStuName.trim(),
       grade: selectedGrade,
       class_name: newStuClass.trim(),
-      category: uploadCategory, // 'school' hoặc 'home'
+      category: uploadCategory,
       phone: newStuPhone.trim()
     }]);
 
@@ -1860,6 +1971,15 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             )}
 
             <button
+              onClick={() => setShowPasswordModal(true)}
+              className="flex items-center space-x-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 px-2.5 py-1 rounded-lg text-xs font-bold shadow"
+              title="Đổi mật khẩu tài khoản đang đăng nhập"
+            >
+              <Key className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Đổi MK</span>
+            </button>
+
+            <button
               onClick={handleLogout}
               className="flex items-center space-x-1 bg-rose-600 hover:bg-rose-700 px-2.5 py-1 rounded-lg text-xs font-bold shadow"
             >
@@ -2433,6 +2553,16 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
               {/* Cụm nút Nhập danh sách từ Excel / Dán nhanh */}
               <div className="flex items-center gap-2">
+
+                <button
+                  type="button"
+                  onClick={handleDownloadSampleExcel}
+                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold px-3.5 py-2 rounded-xl text-xs shadow transition"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>📄 Tải File Excel Mẫu (.xlsx)</span>
+                </button>
+                
                 <label className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs cursor-pointer shadow transition">
                   <FileUp className="w-4 h-4" />
                   <span>📥 Nhập từ File Excel</span>
@@ -2607,7 +2737,19 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                                   </button>
                                 </div>
                               </td>
-                              <td className="p-2.5 font-mono text-xs text-slate-500">{stu.password}</td>
+                              <td className="p-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{stu.password}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResetStudentPassword(stu)}
+                                    className="text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded transition"
+                                    title="Đặt lại mật khẩu mới cho học sinh này"
+                                  >
+                                    🔄 Reset
+                                  </button>
+                                </div>
+                              </td>
                               <td className="p-2.5 text-right">
                                 <button
                                   onClick={async () => {
@@ -2755,6 +2897,75 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       </main>
 
       {/* THANH NAVIGATION DƯỚI ĐÁY MÀN HÌNH DÀNH CHO ĐIỆN THOẠI / TABLET */}
+      {/* MODAL ĐỔI MẬT KHẨU DÀNH CHO HỌC SINH & GIÁO VIÊN */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <form onSubmit={handleChangePassword} className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-2.5">
+              <h3 className="font-extrabold text-base text-slate-800 flex items-center gap-1.5">
+                <Key className="w-4 h-4 text-amber-500" />
+                <span>{isTeacher ? 'Đổi Mật Khẩu Giáo Viên' : `Đổi Mật Khẩu Học Sinh (${currentStudent?.student_code})`}</span>
+              </h3>
+              <button type="button" onClick={() => setShowPasswordModal(false)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
+            </div>
+
+            {!isTeacher && (
+              <div>
+                <label className="text-xs font-bold text-slate-600 block mb-1">Mật khẩu hiện tại:</label>
+                <input
+                  type="password"
+                  required
+                  value={oldPassInput}
+                  onChange={(e) => setOldPassInput(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-xl text-sm"
+                  placeholder="Nhập mật khẩu đang dùng..."
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-bold text-slate-600 block mb-1">Mật khẩu mới:</label>
+              <input
+                type="password"
+                required
+                value={newPassInput}
+                onChange={(e) => setNewPassInput(e.target.value)}
+                className="w-full px-3 py-2 border rounded-xl text-sm"
+                placeholder="Nhập mật khẩu mới..."
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-600 block mb-1">Xác nhận mật khẩu mới:</label>
+              <input
+                type="password"
+                required
+                value={confirmPassInput}
+                onChange={(e) => setConfirmPassInput(e.target.value)}
+                className="w-full px-3 py-2 border rounded-xl text-sm"
+                placeholder="Nhập lại mật khẩu mới..."
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowPasswordModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-xl text-xs font-extrabold bg-[#2563eb] hover:bg-blue-700 text-white shadow"
+              >
+                Lưu Mật Khẩu Mới
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      
       <nav className="xl:hidden fixed bottom-0 left-0 right-0 bg-[#111827] border-t border-slate-800 flex justify-around py-2 z-30 shadow-lg">
         {navTabs.map((t) => {
           const Icon = t.icon;
