@@ -819,6 +819,7 @@ export default function App() {
   const [allSubmissions, setAllSubmissions] = useState([]);              // Lưu toàn bộ điểm bài kiểm tra
   const [bulkImportText, setBulkImportText] = useState('');              // Khung dán nhanh danh sách từ Excel/Word
   const [showBulkModal, setShowBulkModal] = useState(false);             // Bật/tắt bảng nhập hàng loạt
+  const [editingStudent, setEditingStudent] = useState(null); // Lưu thông tin học sinh đang bấm Sửa
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [oldPassInput, setOldPassInput] = useState('');
   const [newPassInput, setNewPassInput] = useState('');
@@ -1044,7 +1045,56 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     setShowPasswordModal(false);
   };
 
-  // ================= GIÁO VIÊN RESET MẬT KHẨU CHO HỌC SINH =================
+  // ================= GIÁO VIÊN SỬA TOÀN BỘ THÔNG TIN & SỐ BÁO DANH HỌC SINH =================
+  const handleUpdateStudentAccount = async (e) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+
+    const rawCode = (editingStudent.student_code || '').trim();
+    const rawName = (editingStudent.full_name || '').trim();
+    const rawClass = (editingStudent.class_name || '').trim();
+
+    if (!rawCode || !rawName || !rawClass) {
+      return alert('Vui lòng không để trống Số báo danh (Mã HS), Họ tên và Lớp!');
+    }
+
+    // Giữ nguyên số báo danh giáo viên tự gõ (nếu chỉ gõ 1-2 số như "5" thì tự lấp số 0 thành "005" hoặc giữ đúng ý giáo viên)
+    const formattedCode = /^\d+$/.test(rawCode) && rawCode.length < 3
+      ? rawCode.padStart(3, '0')
+      : rawCode;
+
+    const { error } = await supabase
+      .from('student_accounts')
+      .update({
+        student_code: formattedCode,
+        full_name: rawName,
+        class_name: rawClass,
+        phone: (editingStudent.phone || '').trim(),
+        password: (editingStudent.password || '').trim() || '123456',
+        grade: Number(editingStudent.grade) || selectedGrade,
+        category: editingStudent.category || selectedCategory
+      })
+      .eq('id', editingStudent.id);
+
+    if (error) {
+      return alert('Lỗi cập nhật (Có thể Số báo danh vừa sửa bị trùng với học sinh khác): ' + error.message);
+    }
+
+    // Tự động cập nhật lại Mã HS & Họ tên trong bảng điểm kiểm tra cũ (nếu học sinh này đã có điểm)
+    if (editingStudent.old_code && (editingStudent.old_code !== formattedCode || editingStudent.old_name !== rawName)) {
+      const oldPrefix = `${editingStudent.old_code} - ${editingStudent.old_name}`;
+      const newPrefix = `${formattedCode} - ${rawName}`;
+      await supabase
+        .from('submissions')
+        .update({ student_name: newPrefix })
+        .eq('student_name', oldPrefix);
+    }
+
+    setEditingStudent(null);
+    fetchData();
+  };
+  
+  
   const handleResetStudentPassword = async (stu) => {
     const newPass = window.prompt(
       `Nhập mật khẩu mới để Reset cho học sinh [${stu.student_code}] ${stu.full_name}:`,
@@ -2509,7 +2559,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           </div>
         )}
 
-        {/* ==================== TAB 6: QUẢN LÝ LỚP, TÀI KHOẢN & ĐIỂM KIỂM TRA HỌC SINH ==================== */}
+       {/* ==================== TAB 6: QUẢN LÝ LỚP, TÀI KHOẢN & ĐIỂM KIỂM TRA HỌC SINH ==================== */}
         {activeTab === 'students' && isTeacher && (
           <div className="space-y-4 bg-slate-50 p-4 rounded-2xl min-h-[82vh]">
             {/* THANH QUẢN LÝ LỚP HỌC & CÔNG CỤ NHẬP DANH SÁCH HÀNG LOẠT */}
@@ -2551,9 +2601,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 })}
               </div>
 
-              {/* Cụm nút Nhập danh sách từ Excel / Dán nhanh */}
-              <div className="flex items-center gap-2">
-
+              {/* Cụm nút Tải File Mẫu / Nhập từ Excel / Dán nhanh */}
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handleDownloadSampleExcel}
@@ -2562,7 +2611,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                   <Download className="w-4 h-4" />
                   <span>📄 Tải File Excel Mẫu (.xlsx)</span>
                 </button>
-                
+
                 <label className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs cursor-pointer shadow transition">
                   <FileUp className="w-4 h-4" />
                   <span>📥 Nhập từ File Excel</span>
@@ -2590,14 +2639,14 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Mã HS (3 số):</label>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Số báo danh (Mã HS):</label>
                     <input
                       type="text"
                       required
                       value={newStuCode}
                       onChange={(e) => setNewStuCode(e.target.value)}
                       className="w-full px-3 py-1.5 border rounded-xl text-sm font-extrabold text-indigo-700 bg-indigo-50/50"
-                      placeholder="001"
+                      placeholder="VD: 001"
                     />
                   </div>
                   <div>
@@ -2657,7 +2706,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 </button>
               </form>
 
-              {/* Cột phải: Bảng danh sách học sinh theo Lớp + Cột Điểm Bài Kiểm Tra */}
+              {/* Cột phải: Bảng danh sách học sinh sắp xếp theo SBD từ nhỏ đến lớn */}
               <div className="lg:col-span-9 bg-white p-4 rounded-2xl shadow-sm border space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
                   <div>
@@ -2665,7 +2714,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       Danh sách Học sinh & Điểm Kiểm Tra — {selectedClassFilter === 'ALL' ? 'Tất cả lớp' : `Lớp ${selectedClassFilter}`} ({selectedCategory === 'school' ? '🏫 Hệ Trường' : '🏠 Hệ Nhà'} • Khối {selectedGrade})
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Điểm học sinh làm ở Tab Bài tập sẽ tự động hiển thị tại cột Điểm bài kiểm tra (hoặc bấm "+ Điểm" để nhập điểm trên lớp).
+                      Danh sách tự động sắp xếp theo Số báo danh (Mã HS) từ nhỏ đến lớn. Bấm vào <strong>Số báo danh</strong> hoặc nút <strong>✏️ Sửa</strong> để chỉnh sửa toàn bộ thông tin.
                     </p>
                   </div>
                 </div>
@@ -2675,7 +2724,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                     <thead className="bg-slate-100 text-slate-700 font-bold">
                       <tr>
                         <th className="p-2.5 rounded-l-lg">STT</th>
-                        <th className="p-2.5">Mã HS</th>
+                        <th className="p-2.5">SBD (Mã HS) ↑</th>
                         <th className="p-2.5">Họ và tên</th>
                         <th className="p-2.5">Lớp</th>
                         <th className="p-2.5">Điểm bài kiểm tra (Tab Bài tập & Trên lớp)</th>
@@ -2691,12 +2740,36 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                             s.grade === selectedGrade &&
                             (selectedClassFilter === 'ALL' || s.class_name?.trim() === selectedClassFilter)
                         )
+                        // SẮP XẾP SỐ BÁO DANH TỪ NHỎ ĐẾN LỚN (000 -> 001 -> 002 -> ...)
+                        .sort((a, b) => {
+                          const numA = parseInt(a.student_code, 10);
+                          const numB = parseInt(b.student_code, 10);
+                          if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+                            return numA - numB;
+                          }
+                          return String(a.student_code || '').localeCompare(String(b.student_code || ''), undefined, { numeric: true });
+                        })
                         .map((stu, idx) => {
                           const stuScores = getStudentTestScores(stu);
                           return (
                             <tr key={stu.id} className="hover:bg-slate-50 align-middle">
                               <td className="p-2.5 text-slate-400 font-bold">{idx + 1}</td>
-                              <td className="p-2.5 font-extrabold text-indigo-700">{stu.student_code}</td>
+                              <td className="p-2.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingStudent({
+                                      ...stu,
+                                      old_code: stu.student_code,
+                                      old_name: stu.full_name
+                                    })
+                                  }
+                                  className="font-extrabold text-indigo-700 hover:text-blue-600 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200/80 transition"
+                                  title="Bấm để sửa Số báo danh & thông tin học sinh này"
+                                >
+                                  {stu.student_code}
+                                </button>
+                              </td>
                               <td className="p-2.5 font-bold text-slate-800">
                                 <div>{stu.full_name}</div>
                                 {stu.phone && <div className="text-[10px] text-slate-400 font-normal">📞 {stu.phone}</div>}
@@ -2744,24 +2817,42 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                                     type="button"
                                     onClick={() => handleResetStudentPassword(stu)}
                                     className="text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded transition"
-                                    title="Đặt lại mật khẩu mới cho học sinh này"
+                                    title="Đặt lại mật khẩu nhanh"
                                   >
                                     🔄 Reset
                                   </button>
                                 </div>
                               </td>
                               <td className="p-2.5 text-right">
-                                <button
-                                  onClick={async () => {
-                                    if (window.confirm(`Xóa tài khoản học sinh [${stu.student_code}] ${stu.full_name}?`)) {
-                                      await supabase.from('student_accounts').delete().eq('id', stu.id);
-                                      fetchData();
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditingStudent({
+                                        ...stu,
+                                        old_code: stu.student_code,
+                                        old_name: stu.full_name
+                                      })
                                     }
-                                  }}
-                                  className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                    className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold px-2.5 py-1 rounded-lg text-xs transition"
+                                    title="Chỉnh sửa toàn bộ thông tin học sinh"
+                                  >
+                                    ✏️ Sửa
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (window.confirm(`Xóa tài khoản học sinh [${stu.student_code}] ${stu.full_name}?`)) {
+                                        await supabase.from('student_accounts').delete().eq('id', stu.id);
+                                        fetchData();
+                                      }
+                                    }}
+                                    className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"
+                                    title="Xóa học sinh"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -2771,6 +2862,162 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 </div>
               </div>
             </div>
+
+            {/* MODAL CHỈNH SỬA TOÀN BỘ THÔNG TIN & SỐ BÁO DANH HỌC SINH */}
+            {editingStudent && (
+              <div className="fixed inset-0 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                <form
+                  onSubmit={handleUpdateStudentAccount}
+                  className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4 shadow-2xl border border-slate-200"
+                >
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <div>
+                      <h3 className="font-extrabold text-base text-indigo-800">
+                        ✏️ Chỉnh Sửa Thông Tin Học Sinh
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        Giáo viên có thể đổi tùy ý Số báo danh (Mã HS), Họ tên, Lớp, SĐT, Mật khẩu và Phân hệ.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingStudent(null)}
+                      className="text-slate-400 hover:text-slate-700 font-bold text-lg px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Số báo danh (Mã HS):
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editingStudent.student_code}
+                        onChange={(e) =>
+                          setEditingStudent({ ...editingStudent, student_code: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm font-extrabold text-indigo-700 bg-indigo-50/40 focus:border-indigo-600 outline-none"
+                        placeholder="VD: 001 hoặc 0001"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Mật khẩu đăng nhập:
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editingStudent.password}
+                        onChange={(e) =>
+                          setEditingStudent({ ...editingStudent, password: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border rounded-xl text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Họ và tên học sinh:
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editingStudent.full_name}
+                      onChange={(e) =>
+                        setEditingStudent({ ...editingStudent, full_name: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border rounded-xl text-sm font-semibold"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Tên Lớp:
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editingStudent.class_name}
+                        onChange={(e) =>
+                          setEditingStudent({ ...editingStudent, class_name: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border rounded-xl text-sm font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Số điện thoại:
+                      </label>
+                      <input
+                        type="text"
+                        value={editingStudent.phone || ''}
+                        onChange={(e) =>
+                          setEditingStudent({ ...editingStudent, phone: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border rounded-xl text-sm"
+                        placeholder="09xx..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Phân hệ (Trường / Nhà):
+                      </label>
+                      <select
+                        value={editingStudent.category}
+                        onChange={(e) =>
+                          setEditingStudent({ ...editingStudent, category: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border rounded-xl text-xs font-bold bg-slate-50"
+                      >
+                        <option value="school">🏫 Lớp Trường</option>
+                        <option value="home">🏠 Lớp Nhà</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Khối lớp:
+                      </label>
+                      <select
+                        value={editingStudent.grade}
+                        onChange={(e) =>
+                          setEditingStudent({ ...editingStudent, grade: Number(e.target.value) })
+                        }
+                        className="w-full px-3 py-2 border rounded-xl text-xs font-bold bg-slate-50"
+                      >
+                        <option value={10}>Khối 10</option>
+                        <option value={11}>Khối 11</option>
+                        <option value={12}>Khối 12</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-3 border-t">
+                    <button
+                      type="button"
+                      onClick={() => setEditingStudent(null)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-xl text-xs sm:text-sm font-extrabold bg-[#2563eb] hover:bg-blue-700 text-white shadow-md"
+                    >
+                      💾 Lưu Thay Đổi
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
 
             {/* MODAL DÁN NHANH / KIỂM TRA DANH SÁCH TRƯỚC KHI NHẬP HÀNG LOẠT */}
             {showBulkModal && (
@@ -2782,7 +3029,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                         📥 Nhập Danh Sách Học Sinh Hàng Loạt (Khối {selectedGrade})
                       </h3>
                       <p className="text-xs text-slate-500">
-                        Hệ thống tự động cấp Mã học sinh 3 số liên tiếp (001 ➔ 999). Bạn có thể copy trực tiếp các cột từ Excel dán vào đây.
+                        Hệ thống tự động cấp Số báo danh theo thứ tự tăng dần. Bạn có thể sửa lại bất kỳ lúc nào.
                       </p>
                     </div>
                     <button onClick={() => setShowBulkModal(false)} className="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
@@ -2803,14 +3050,14 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                   </div>
 
                   <div className="text-[11px] text-slate-600 bg-amber-50 border border-amber-200 p-2.5 rounded-xl">
-                    💡 <strong>Cú pháp mỗi dòng 1 học sinh:</strong> <code>Họ và tên | Lớp | SĐT | Mật khẩu</code> (Nếu chỉ gõ mỗi <strong>Họ và tên</strong> trên 1 dòng, hệ thống sẽ tự lấy Lớp mặc định ở trên và mật khẩu mặc định là <code>123456</code>).
+                    💡 <strong>Cú pháp mỗi dòng 1 học sinh:</strong> <code>Số báo danh | Họ và tên | Lớp | SĐT | Mật khẩu</code> (Hoặc chỉ cần gõ <code>Họ và tên</code> trên mỗi dòng).
                   </div>
 
                   <textarea
                     rows={10}
                     value={bulkImportText}
                     onChange={(e) => setBulkImportText(e.target.value)}
-                    placeholder={`Nguyễn Văn An | 10A1 | 0912345678 | 123456\nTrần Thị Bình | 10A1\nLê Hoàng Cường`}
+                    placeholder={`001 | Nguyễn Văn An | 12a | 0912345678 | 123456\n002 | Trần Thị Bình | 12a`}
                     className="w-full p-3 border rounded-xl text-xs sm:text-sm font-mono"
                   />
 
