@@ -9,7 +9,6 @@ import {
 
 const GRADES = [10, 11, 12];
 
-
 // ============================================================================
 // 1. ENGINE BẢNG VẼ TABLET PRO + TỰ ĐỘNG LƯU & NHÚNG NÉT VIẾT VÀO FILE HTML
 // ============================================================================
@@ -81,34 +80,32 @@ const TABLET_PRO_DRAWING_INJECTION = `
 </style>
 <script>
   window.addEventListener('load', function() {
-    const canvas = document.getElementById('drawing-canvas');
-    const scrollBox = document.getElementById('slide-content-scroll');
+    var canvas = document.getElementById('drawing-canvas');
+    var scrollBox = document.getElementById('slide-content-scroll');
     if (!canvas || !scrollBox) return;
 
     window.palmRejectionOnlyPen = false;
-    const storageKey = 'vy_drawings_' + (document.title || 'default');
+    var storageKey = 'vy_drawings_' + (document.title || 'default');
 
-    // 1. KHÔI PHỤC NÉT VIẾT ĐÃ LƯU TRONG FILE HTML HOẶC BỘ NHỚ TẠM
     try {
       if (window.SAVED_SLIDE_DRAWINGS && Array.isArray(window.SAVED_SLIDE_DRAWINGS) && typeof slideDrawings !== 'undefined') {
-        for (let i = 0; i < Math.min(slideDrawings.length, window.SAVED_SLIDE_DRAWINGS.length); i++) {
+        for (var i = 0; i < Math.min(slideDrawings.length, window.SAVED_SLIDE_DRAWINGS.length); i++) {
           slideDrawings[i] = window.SAVED_SLIDE_DRAWINGS[i] || [];
         }
       }
-      const localBackup = localStorage.getItem(storageKey);
+      var localBackup = localStorage.getItem(storageKey);
       if (localBackup && typeof slideDrawings !== 'undefined') {
-        const parsed = JSON.parse(localBackup);
+        var parsed = JSON.parse(localBackup);
         if (Array.isArray(parsed)) {
-          for (let i = 0; i < Math.min(slideDrawings.length, parsed.length); i++) {
-            if (parsed[i] && parsed[i].length > 0) slideDrawings[i] = parsed[i];
+          for (var j = 0; j < Math.min(slideDrawings.length, parsed.length); j++) {
+            if (parsed[j] && parsed[j].length > 0) slideDrawings[j] = parsed[j];
           }
         }
       }
       if (typeof redrawCanvas === 'function') setTimeout(redrawCanvas, 80);
     } catch (e) {}
 
-    // Tự động lưu nháp vào máy sau mỗi nét viết để lỡ tắt tab không bao giờ mất
-    const autoBackupLocal = () => {
+    var autoBackupLocal = function() {
       try {
         if (typeof slideDrawings !== 'undefined') {
           localStorage.setItem(storageKey, JSON.stringify(slideDrawings));
@@ -117,7 +114,6 @@ const TABLET_PRO_DRAWING_INJECTION = `
     };
     canvas.addEventListener('pointerup', autoBackupLocal);
 
-    // Hàm gửi toàn bộ nét vẽ ra ngoài trang Web chính để Lưu lên Google Drive
     window.requestSaveDrawingsToCloud = function() {
       if (typeof slideDrawings === 'undefined') return;
       autoBackupLocal();
@@ -128,77 +124,60 @@ const TABLET_PRO_DRAWING_INJECTION = `
     };
 
     if (!document.getElementById('tablet-quick-helper')) {
-      const helper = document.createElement('div');
+      var helper = document.createElement('div');
       helper.id = 'tablet-quick-helper';
-      helper.innerHTML = \`
-        <button id="qbtn-pen" class="tb-quick-btn" title="Bút viết bảng">
-          <span>✏️</span><span class="lbl">Bút</span>
-        </button>
-        <button id="qbtn-eraser" class="tb-quick-btn" title="Tẩy nét">
-          <span>🧹</span><span class="lbl">Tẩy</span>
-        </button>
-        <button id="qbtn-cursor" class="tb-quick-btn active-mode" title="Chế độ Cuộn trang & Bấm nút">
-          <span>👆</span><span class="lbl">Cuộn</span>
-        </button>
-        <button id="qbtn-palm" class="tb-quick-btn" title="Chống tì tay (Chỉ nhận Bút cảm ứng)">
-          <span>✋</span><span class="lbl">Chỉ Bút</span>
-        </button>
-        <div style="height:1px;background:#334155;margin:2px 0;"></div>
-        <button id="qbtn-up" class="tb-quick-btn" title="Cuộn lên">
-          <span>▲</span><span class="lbl">Lên</span>
-        </button>
-        <button id="qbtn-down" class="tb-quick-btn" title="Cuộn xuống viết tiếp">
-          <span>▼</span><span class="lbl">Xuống</span>
-        </button>
-        <button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác">
-          <span>↩️</span><span class="lbl">Lùi</span>
-        </button>
-        <div style="height:1px;background:#334155;margin:2px 0;"></div>
-        <button id="qbtn-save" class="tb-quick-btn save-highlight" title="Lưu toàn bộ nét viết vào file HTML trên Google Drive">
-          <span>💾</span><span class="lbl">Lưu Bảng</span>
-        </button>
-      \`;
+      helper.innerHTML =
+        '<button id="qbtn-pen" class="tb-quick-btn" title="Bút viết bảng"><span>✏️</span><span class="lbl">Bút</span></button>' +
+        '<button id="qbtn-eraser" class="tb-quick-btn" title="Tẩy nét"><span>🧹</span><span class="lbl">Tẩy</span></button>' +
+        '<button id="qbtn-cursor" class="tb-quick-btn active-mode" title="Chế độ Cuộn trang & Bấm nút"><span>👆</span><span class="lbl">Cuộn</span></button>' +
+        '<button id="qbtn-palm" class="tb-quick-btn" title="Chống tì tay (Chỉ nhận Bút cảm ứng)"><span>✋</span><span class="lbl">Chỉ Bút</span></button>' +
+        '<div style="height:1px;background:#334155;margin:2px 0;"></div>' +
+        '<button id="qbtn-up" class="tb-quick-btn" title="Cuộn lên"><span>▲</span><span class="lbl">Lên</span></button>' +
+        '<button id="qbtn-down" class="tb-quick-btn" title="Cuộn xuống viết tiếp"><span>▼</span><span class="lbl">Xuống</span></button>' +
+        '<button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác"><span>↩️</span><span class="lbl">Lùi</span></button>' +
+        '<div style="height:1px;background:#334155;margin:2px 0;"></div>' +
+        '<button id="qbtn-save" class="tb-quick-btn save-highlight" title="Lưu toàn bộ nét viết vào file HTML trên Google Drive"><span>💾</span><span class="lbl">Lưu Bảng</span></button>';
       document.body.appendChild(helper);
 
-      const syncQuickHighlight = (tool) => {
-        ['pen', 'eraser', 'cursor'].forEach(t => {
-          const btn = document.getElementById('qbtn-' + t);
+      var syncQuickHighlight = function(tool) {
+        ['pen', 'eraser', 'cursor'].forEach(function(t) {
+          var btn = document.getElementById('qbtn-' + t);
           if (btn) btn.classList.toggle('active-mode', t === tool);
         });
       };
 
       if (typeof window.setDrawTool === 'function') {
-        const origSetDrawTool = window.setDrawTool;
+        var origSetDrawTool = window.setDrawTool;
         window.setDrawTool = function(t) {
           origSetDrawTool(t);
           syncQuickHighlight(t);
         };
       }
 
-      document.getElementById('qbtn-pen').onclick = () => {
-        const bar = document.getElementById('drawing-toolbar');
+      document.getElementById('qbtn-pen').onclick = function() {
+        var bar = document.getElementById('drawing-toolbar');
         if (bar && bar.classList.contains('hidden')) bar.classList.replace('hidden', 'flex');
         if (typeof window.setDrawTool === 'function') window.setDrawTool('pen');
       };
-      document.getElementById('qbtn-eraser').onclick = () => {
+      document.getElementById('qbtn-eraser').onclick = function() {
         if (typeof window.setDrawTool === 'function') window.setDrawTool('eraser');
       };
-      document.getElementById('qbtn-cursor').onclick = () => {
+      document.getElementById('qbtn-cursor').onclick = function() {
         if (typeof window.setDrawTool === 'function') window.setDrawTool('cursor');
       };
       document.getElementById('qbtn-palm').onclick = function() {
         window.palmRejectionOnlyPen = !window.palmRejectionOnlyPen;
         this.classList.toggle('active-mode', window.palmRejectionOnlyPen);
       };
-      document.getElementById('qbtn-up').onclick = () => scrollBox.scrollBy({ top: -220, behavior: 'smooth' });
-      document.getElementById('qbtn-down').onclick = () => scrollBox.scrollBy({ top: 220, behavior: 'smooth' });
-      document.getElementById('qbtn-undo').onclick = () => {
+      document.getElementById('qbtn-up').onclick = function() { scrollBox.scrollBy({ top: -220, behavior: 'smooth' }); };
+      document.getElementById('qbtn-down').onclick = function() { scrollBox.scrollBy({ top: 220, behavior: 'smooth' }); };
+      document.getElementById('qbtn-undo').onclick = function() {
         if (typeof window.undoLastStroke === 'function') {
           window.undoLastStroke();
           autoBackupLocal();
         }
       };
-      document.getElementById('qbtn-save').onclick = () => {
+      document.getElementById('qbtn-save').onclick = function() {
         window.requestSaveDrawingsToCloud();
       };
     }
@@ -224,7 +203,7 @@ const TABLET_PRO_DRAWING_INJECTION = `
     canvas.addEventListener('pointerdown', function(e) {
       if (e.pointerType === 'pen' && !window.palmRejectionOnlyPen) {
         window.palmRejectionOnlyPen = true;
-        const palmBtn = document.getElementById('qbtn-palm');
+        var palmBtn = document.getElementById('qbtn-palm');
         if (palmBtn) palmBtn.classList.add('active-mode');
       }
       if (window.palmRejectionOnlyPen && e.pointerType === 'touch') {
@@ -243,100 +222,133 @@ const TABLET_PRO_DRAWING_INJECTION = `
 </script>
 `;
 
+// ============================================================================
+// 2. BỘ PHÂN TÍCH TỰ ĐỘNG (AUTO-PARSER) CHUẨN XÁC + KHỬ LỖI FONT PDF + HỖ TRỢ SVG/ẢNH
+// ============================================================================
+function cleanBrokenVietnamesePdfText(str) {
+  if (!str) return '';
+  return str
+    .replace(/[\uF000-\uF0FF\uFFFD\uD83E\uDD10-\uDDFF]/gu, '')
+    .replace(/([bcdđghklmnpqrstvx])\s+([aăâeêioôơuưyáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ])/gi, '$1$2')
+    .replace(/([aăâeêioôơuưyáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ])\s+([cmnptg])\b/gi, '$1$2')
+    .replace(/\b(Sưu)\s+tầ\s*m/gi, 'Sưu tầm')
+    .replace(/\bbiên\s+so\s*ạ\s*n\b/gi, 'biên soạn')
+    .replace(/\btr\s*ắ\s*c\s+nghi\s*ệ\s*m\b/gi, 'trắc nghiệm')
+    .replace(/\bphương\s+á\s*n\b/gi, 'phương án');
+}
 
-// ============================================================================
-// 2. BỘ PHÂN TÍCH TỰ ĐỘNG (AUTO-PARSER) NHẬN DIỆN ĐỦ 4 DẠNG TỪ PDF / VĂN BẢN
-// - Lý thuyết ([LT] hoặc I. TÓM TẮT LÝ THUYẾT)
-// - Phần I: Trắc nghiệm 4 phương án A, B, C, D
-// - Phần II: Trắc nghiệm Đúng/Sai a), b), c), d)
-// - Phần III: Trả lời ngắn (Đáp số)
-// ============================================================================
 function parseSmartMathContentToSlides(lessonTitle, rawText) {
   const slides = [];
-  const cleanTitle = (lessonTitle || 'BÀI GIẢNG TOÁN').toUpperCase();
+  const cleanTitle = (lessonTitle || 'CHUYÊN ĐỀ TOÁN').toUpperCase();
+  const normalizedText = cleanBrokenVietnamesePdfText((rawText || '').replace(/\r\n/g, '\n'));
 
-  // Tách bảng đáp án cuối đề nếu có (VD: 1.A 2.B 3.C...)
   const answerKeyMap = {};
-  const keyMatches = rawText.matchAll(/\b(\d+)\s*[\.\-\:]\s*([A-D])\b/g);
+  const keyMatches = normalizedText.matchAll(/\b(\d+)\s*[\.\-\:]\s*([A-D])\b/g);
   for (const m of keyMatches) {
     answerKeyMap[m[1]] = ['A', 'B', 'C', 'D'].indexOf(m[2].toUpperCase());
   }
 
-  // Chia các khối theo từ khóa Câu 1, Câu 2... hoặc [LT]
-  const lines = rawText.replace(/\r\n/g, '\n').split('\n');
+  const lines = normalizedText.split('\n');
+  let currentLessonNum = 1;
+  let currentLessonTitle = `BÀI 1. ${cleanTitle}`;
   let currentPart = 'PHẦN I. CÂU TRẮC NGHIỆM';
-  let currentBlocks = [];
+  const currentBlocks = [];
   let tempBlock = [];
 
-  for (let rawLine of lines) {
+  for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (!line) continue;
+    if (!line || /^Page\s+\d+$/i.test(line)) continue;
 
-    // Nhận diện tiêu đề chuyển Phần (Phần I, Phần II, Phần III, Lý thuyết)
+    const lessonMatch = line.match(/^BÀI\s*(\d+)[\.\:\-]?\s*(.*)/i);
+    if (lessonMatch && !/^Bài\s+tập/i.test(line)) {
+      if (tempBlock.length) {
+        currentBlocks.push({ lesson: currentLessonNum, lessonTitle: currentLessonTitle, part: currentPart, lines: tempBlock });
+        tempBlock = [];
+      }
+      currentLessonNum = Math.min(4, Math.max(1, parseInt(lessonMatch[1], 10) || 1));
+      currentLessonTitle = `BÀI ${currentLessonNum}. ${(lessonMatch[2] || cleanTitle).toUpperCase()}`;
+      continue;
+    }
+
     if (/^(PHẦN\s*I\b|I\.\s*TRẮC NGHIỆM)/i.test(line) && !/PHẦN\s*II/i.test(line)) {
-      if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
+      if (tempBlock.length) { currentBlocks.push({ lesson: currentLessonNum, lessonTitle: currentLessonTitle, part: currentPart, lines: tempBlock }); tempBlock = []; }
       currentPart = 'PHẦN I. CÂU TRẮC NGHIỆM';
       continue;
     }
     if (/^(PHẦN\s*II\b|II\.\s*CÂU TRẮC NGHIỆM ĐÚNG SAI|PHẦN\s*2)/i.test(line) && !/PHẦN\s*III/i.test(line)) {
-      if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
+      if (tempBlock.length) { currentBlocks.push({ lesson: currentLessonNum, lessonTitle: currentLessonTitle, part: currentPart, lines: tempBlock }); tempBlock = []; }
       currentPart = 'PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI';
       continue;
     }
     if (/^(PHẦN\s*III\b|III\.\s*CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN|PHẦN\s*3)/i.test(line)) {
-      if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
+      if (tempBlock.length) { currentBlocks.push({ lesson: currentLessonNum, lessonTitle: currentLessonTitle, part: currentPart, lines: tempBlock }); tempBlock = []; }
       currentPart = 'PHẦN III. CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN';
       continue;
     }
 
-    // Nhận diện bắt đầu một Slide Lý thuyết hoặc một Câu hỏi mới
+    if (/^(Thí sinh trả lời|Mỗi câu hỏi thí sinh|Trong mỗi ý a\)|CHUYÊN ĐỀ\s+[IVX]+|Sưu tầm và biên soạn)/i.test(line)) {
+      continue;
+    }
+
     if (/^(\[LT\]|LÝ THUYẾT:|TÓM TẮT LÝ THUYẾT)/i.test(line) || /^Câu\s+\d+[\.\:\)]/i.test(line)) {
       if (tempBlock.length) {
-        currentBlocks.push({ part: currentPart, lines: tempBlock });
+        currentBlocks.push({ lesson: currentLessonNum, lessonTitle: currentLessonTitle, part: currentPart, lines: tempBlock });
       }
       tempBlock = [line];
     } else {
-      tempBlock.push(line);
+      if (tempBlock.length > 0) tempBlock.push(line);
     }
   }
   if (tempBlock.length) {
-    currentBlocks.push({ part: currentPart, lines: tempBlock });
+    currentBlocks.push({ lesson: currentLessonNum, lessonTitle: currentLessonTitle, part: currentPart, lines: tempBlock });
   }
 
-  // Phân tích chi tiết từng Block thành đúng cấu trúc Slide của Thầy Vy
   currentBlocks.forEach((blk, idx) => {
-    const bLines = blk.lines;
+    const fullBlockStr = blk.lines.join('\n');
+
+    let figureHtml = '';
+    const svgMatch = fullBlockStr.match(/<svg[\s\S]*?<\/svg>/i);
+    if (svgMatch) figureHtml = svgMatch[0];
+    const imgMatch = fullBlockStr.match(/\[IMG:(data:image\/[^\]]+|https?:\/\/[^\]]+)\]/i);
+    if (imgMatch) {
+      figureHtml = `<img src="${imgMatch[1]}" class="max-h-[260px] w-auto object-contain rounded-lg mx-auto" alt="Hình minh họa" />`;
+    }
+
+    const bLines = fullBlockStr
+      .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+      .replace(/\[IMG:[^\]]+\]/gi, '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (bLines.length === 0) return;
     const headerLine = bLines[0];
 
-    // 1. DẠNG LÝ THUYẾT
     if (/^(\[LT\]|LÝ THUYẾT:|TÓM TẮT LÝ THUYẾT)/i.test(headerLine)) {
-      const titlePrompt = headerLine.replace(/^(\[LT\]|LÝ THUYẾT:)\s*/i, '') || `${cleanTitle} — TÓM TẮT LÝ THUYẾT`;
-      const bodyParagraphs = bLines.slice(1).map(l => `<p>• ${l.replace(/^[•\-\+]\s*/, '')}</p>`).join('');
+      const titlePrompt = headerLine.replace(/^(\[LT\]|LÝ THUYẾT:)\s*/i, '') || `${blk.lessonTitle} — TÓM TẮT LÝ THUYẾT`;
+      const bodyParagraphs = bLines.slice(1).map((l) => `<p>• ${l.replace(/^[•\-\+]\s*/, '')}</p>`).join('');
       slides.push({
-        lesson: 1,
-        lessonTitle: cleanTitle,
+        lesson: blk.lesson,
+        lessonTitle: blk.lessonTitle,
         part: 'I. TÓM TẮT LÝ THUYẾT',
-        subRef: `Lý thuyết • Slide ${idx + 1}`,
+        subRef: `Bài ${blk.lesson} • Lý thuyết`,
         type: 'theory',
         label: 'Lý thuyết',
         prompt: titlePrompt,
-        theoryHtml: `
-          <div class="bg-blue-50/80 border-l-4 border-blue-600 p-5 rounded-r-xl space-y-2 text-base sm:text-xl leading-relaxed">
-            ${bodyParagraphs || '<p>Nội dung tóm tắt lý thuyết trọng tâm.</p>'}
-          </div>
-        `
+        figureHtml,
+        theoryHtml: `<div class="bg-blue-50/80 border-l-4 border-blue-600 p-5 rounded-r-xl space-y-2 text-base sm:text-xl leading-relaxed">${bodyParagraphs || '<p>Nội dung lý thuyết trọng tâm.</p>'}</div>`
       });
       return;
     }
 
-    // Tách nhãn "Câu X." và nội dung đề
     const qMatch = headerLine.match(/^(Câu\s+(\d+)[\.\:\)]?)\s*(.*)/i);
-    const qLabel = qMatch ? `Câu ${qMatch[2]}.` : `Câu ${idx + 1}.`;
     const qNum = qMatch ? qMatch[2] : `${idx + 1}`;
-    let promptLines = [qMatch ? qMatch[3] : headerLine];
-    let solutionLines = [];
-    let bodyLines = [];
+    const qLabel = `Câu ${qNum}.`;
+    const promptLines = [qMatch ? qMatch[3] : headerLine];
+    const solutionLines = [];
+    const bodyLines = [];
     let inSolution = false;
+    let explicitChoiceFromSol = null;
 
     for (let i = 1; i < bLines.length; i++) {
       const l = bLines[i];
@@ -346,40 +358,41 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
         if (cleanedSol) solutionLines.push(cleanedSol);
         continue;
       }
-      if (inSolution) {
-        solutionLines.push(l);
-      } else {
-        bodyLines.push(l);
+      const chooseMatch = l.match(/^Chọn\s+([A-D])\b/i);
+      if (chooseMatch) {
+        explicitChoiceFromSol = ['A', 'B', 'C', 'D'].indexOf(chooseMatch[1].toUpperCase());
+        inSolution = true;
+        continue;
       }
+      if (inSolution) solutionLines.push(l);
+      else bodyLines.push(l);
     }
 
-    // Tách các phương án nếu viết trên cùng 1 dòng (VD: A. ... B. ... C. ... D. ...)
     const expandedBodyLines = [];
-    bodyLines.forEach(line => {
-      if (/(?:^|\s)\*?[A-D]\.\s+/.test(line) && (line.match(/(?:^|\s)\*?[A-D]\.\s+/g) || []).length > 1) {
-        const parts = line.split(/(?=(?:^|\s)\*?[A-D]\.\s+)/).map(s => s.trim()).filter(Boolean);
+    bodyLines.forEach((line) => {
+      if (/(?:^|\s)\*?[A-D][\.\)]\s+/.test(line) && (line.match(/(?:^|\s)\*?[A-D][\.\)]\s+/g) || []).length > 1) {
+        const parts = line.split(/(?=(?:^|\s)\*?[A-D][\.\)]\s+)/).map((s) => s.trim()).filter(Boolean);
         expandedBodyLines.push(...parts);
       } else {
         expandedBodyLines.push(line);
       }
     });
 
-    // Kiểm tra xem có các mệnh đề a), b), c), d) (Dạng ĐÚNG/SAI) hay không
     const tfStatements = [];
     const mcqOptions = [];
-    let detectedCorrectIdx = answerKeyMap[qNum] !== undefined ? answerKeyMap[qNum] : 0;
+    let detectedCorrectIdx = explicitChoiceFromSol !== null
+      ? explicitChoiceFromSol
+      : (answerKeyMap[qNum] !== undefined ? answerKeyMap[qNum] : 0);
     let shortAnsValue = '';
 
-    expandedBodyLines.forEach(line => {
-      // Nhận diện mệnh đề a), b), c), d)
+    expandedBodyLines.forEach((line) => {
       const tfMatch = line.match(/^(\*?)([a-d])\)\s*(.*)/i);
       const mcqMatch = line.match(/^(\*?)([A-D])[\.\)]\s*(.*)/);
       const shortMatch = line.match(/^(Đáp số|ĐS|KQ|Kết quả)\s*[\:\=]\s*(.*)/i);
 
       if (tfMatch) {
-        const hasStar = tfMatch[1] === '*';
         let stText = tfMatch[3];
-        let isTrue = hasStar;
+        let isTrue = tfMatch[1] === '*';
         if (/\[(Đ|Đúng|True)\]\s*$/i.test(stText)) {
           isTrue = true;
           stText = stText.replace(/\[(Đ|Đúng|True)\]\s*$/i, '').trim();
@@ -387,11 +400,7 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
           isTrue = false;
           stText = stText.replace(/\[(S|Sai|False)\]\s*$/i, '').trim();
         }
-        tfStatements.push({
-          label: `${tfMatch[2].toLowerCase()})`,
-          text: stText,
-          isTrue
-        });
+        tfStatements.push({ label: `${tfMatch[2].toLowerCase()})`, text: stText, isTrue });
       } else if (mcqMatch) {
         const optIdx = ['A', 'B', 'C', 'D'].indexOf(mcqMatch[2].toUpperCase());
         if (mcqMatch[1] === '*') detectedCorrectIdx = optIdx;
@@ -400,15 +409,16 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
         shortAnsValue = shortMatch[2].trim();
       } else if (tfStatements.length === 0 && mcqOptions.length === 0) {
         promptLines.push(line);
+      } else if (mcqOptions.length > 0) {
+        mcqOptions[mcqOptions.length - 1] += ' ' + line;
       }
     });
 
     const fullPrompt = promptLines.filter(Boolean).join(' ');
-    const fullSolution = solutionLines.length > 0 
-      ? solutionLines.join('<br>') 
-      : 'Áp dụng kiến thức trọng tâm đã học để suy ra kết quả.';
+    const fullSolution = solutionLines.length > 0
+      ? solutionLines.join('<br>')
+      : 'Áp dụng kiến thức trọng tâm của bài học để suy ra đáp án.';
 
-    // 2. DẠNG ĐÚNG / SAI (PHẦN II)
     if (tfStatements.length >= 2 || blk.part.includes('PHẦN II')) {
       const finalStatements = tfStatements.length > 0 ? tfStatements : [
         { label: 'a)', text: 'Mệnh đề a', isTrue: true },
@@ -416,49 +426,50 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
         { label: 'c)', text: 'Mệnh đề c', isTrue: true },
         { label: 'd)', text: 'Mệnh đề d', isTrue: false },
       ];
-      const summaryTF = finalStatements.map(s => `<strong>${s.label} ${s.isTrue ? 'ĐÚNG' : 'SAI'}</strong>`).join(' &nbsp;|&nbsp; ');
+      const summaryTF = finalStatements.map((s) => `<strong>${s.label} ${s.isTrue ? 'ĐÚNG' : 'SAI'}</strong>`).join(' &nbsp;|&nbsp; ');
       slides.push({
-        lesson: 1,
-        lessonTitle: cleanTitle,
+        lesson: blk.lesson,
+        lessonTitle: blk.lessonTitle,
         part: 'PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI',
-        subRef: `${qLabel} / Phần II`,
+        subRef: `Bài ${blk.lesson} • ${qLabel} / Phần II`,
         type: 'tf',
         label: qLabel,
         prompt: fullPrompt,
+        figureHtml,
         statements: finalStatements,
         solution: solutionLines.length > 0 ? `${summaryTF}<br>${fullSolution}` : summaryTF
       });
       return;
     }
 
-    // 3. DẠNG TRẢ LỜI NGẮN (PHẦN III)
     if (shortAnsValue || (mcqOptions.length === 0 && blk.part.includes('PHẦN III'))) {
       slides.push({
-        lesson: 1,
-        lessonTitle: cleanTitle,
+        lesson: blk.lesson,
+        lessonTitle: blk.lessonTitle,
         part: 'PHẦN III. CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN',
-        subRef: `${qLabel} / Phần III`,
+        subRef: `Bài ${blk.lesson} • ${qLabel} / Phần III`,
         type: 'short',
         label: qLabel,
         prompt: fullPrompt,
+        figureHtml,
         shortAnswer: shortAnsValue || 'Xem lời giải',
         solution: fullSolution
       });
       return;
     }
 
-    // 4. DẠNG TRẮC NGHIỆM 4 PHƯƠNG ÁN (PHẦN I)
     while (mcqOptions.length < 4) {
       mcqOptions.push(`Phương án ${['A', 'B', 'C', 'D'][mcqOptions.length]}`);
     }
     slides.push({
-      lesson: 1,
-      lessonTitle: cleanTitle,
+      lesson: blk.lesson,
+      lessonTitle: blk.lessonTitle,
       part: 'PHẦN I. CÂU TRẮC NGHIỆM',
-      subRef: `${qLabel} / Phần I`,
+      subRef: `Bài ${blk.lesson} • ${qLabel} / Phần I`,
       type: 'mcq',
       label: qLabel,
       prompt: fullPrompt,
+      figureHtml,
       options: mcqOptions.slice(0, 4),
       correctIndex: detectedCorrectIdx,
       solution: fullSolution
@@ -469,7 +480,7 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
 }
 
 // ============================================================================
-// 3. HÀM XUẤT FILE HTML HOÀN CHỈNH Y HỆT FORM "bai tap vecto.html" CỦA THẦY VY
+// 3. XUẤT FILE HTML CHUẨN 100% GIAO DIỆN GỐC "bai tap vecto.html" (CÓ BẢNG VẼ THẦY VY + PHÓNG TO HÌNH)
 // ============================================================================
 function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
   return `<!DOCTYPE html>
@@ -485,44 +496,67 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body { font-family: 'Inter', sans-serif; background-color: #0b1120; color: #0f172a; overflow: hidden; user-select: none; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background-color: #0b1120; color: #0f172a; overflow: hidden; user-select: none; -webkit-user-select: none; }
     .slide-scroll::-webkit-scrollbar { width: 10px; }
     .slide-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
     .slide-scroll::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; }
     .katex { font-size: 1.1em !important; }
+    .katex-display { margin: 0.35em 0 !important; overflow-x: auto; overflow-y: hidden; }
     #drawing-canvas.drawing-active { pointer-events: auto; touch-action: none; cursor: crosshair; }
     #drawing-canvas.drawing-inactive { pointer-events: none; touch-action: pan-y; }
-    .tool-active { background-color: #2563eb !important; color: #fff !important; box-shadow: 0 0 0 2px #60a5fa; }
+    #eraser-cursor { pointer-events: none; position: fixed; border: 2px solid #ef4444; background: rgba(239,68,68,0.15); border-radius: 50%; transform: translate(-50%,-50%); z-index: 9999; display: none; }
+    .tool-active { background-color: #2563eb !important; color: #ffffff !important; box-shadow: 0 0 0 2px #60a5fa; }
     .color-dot-active { transform: scale(1.22); box-shadow: 0 0 0 2px #0f172a, 0 0 0 3.5px #ffffff; }
+    .lesson-tab-active { background-color: #f59e0b !important; color: #0f172a !important; font-weight: 800 !important; }
   </style>
 </head>
 <body class="h-screen w-screen flex flex-col justify-between bg-[#0b1120]">
+  <div id="eraser-cursor"></div>
+
   <header class="bg-[#111827] border-b border-slate-800 px-2.5 py-1 flex items-center justify-between gap-2 z-40 shrink-0 min-h-[42px] overflow-x-auto">
-    <div class="flex items-center gap-2 shrink-0">
-      <span class="bg-[#2563eb] text-white font-extrabold text-[11px] px-2 py-0.5 rounded uppercase">TOÁN ${grade}</span>
-      <span class="text-white font-bold text-xs sm:text-sm truncate max-w-[240px] sm:max-w-md">${lessonTitle}</span>
+    <div class="flex items-center gap-1.5 shrink-0">
+      <span class="bg-[#2563eb] text-white font-extrabold text-[11px] px-2 py-0.5 rounded tracking-wide uppercase">TOÁN ${grade}</span>
+      <span class="text-white font-bold text-xs sm:text-sm mr-1 hidden xl:inline">Thầy Vy</span>
+      <div class="flex items-center gap-1 bg-slate-800/90 p-0.5 rounded-lg border border-slate-700">
+        <button id="tab-b1" onclick="jumpToLesson(1)" class="px-2 py-0.5 rounded text-xs font-semibold text-slate-200 hover:bg-slate-700 transition">Bài 1</button>
+        <button id="tab-b2" onclick="jumpToLesson(2)" class="px-2 py-0.5 rounded text-xs font-semibold text-slate-200 hover:bg-slate-700 transition">Bài 2</button>
+        <button id="tab-b3" onclick="jumpToLesson(3)" class="px-2 py-0.5 rounded text-xs font-semibold text-slate-200 hover:bg-slate-700 transition">Bài 3</button>
+        <button id="tab-b4" onclick="jumpToLesson(4)" class="px-2 py-0.5 rounded text-xs font-semibold text-slate-200 hover:bg-slate-700 transition">Bài 4</button>
+      </div>
     </div>
 
     <div id="drawing-toolbar" class="hidden items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700 shrink-0">
-      <button id="tool-cursor" onclick="setDrawTool('cursor')" class="tool-active px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">👆 Chuột</button>
-      <button id="tool-pen" onclick="setDrawTool('pen')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">✏️ Bút</button>
-      <button id="tool-highlighter" onclick="setDrawTool('highlighter')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">🖍️</button>
-      <button id="tool-eraser" onclick="setDrawTool('eraser')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold">🧹 Tẩy</button>
+      <button id="tool-cursor" onclick="setDrawTool('cursor')" class="tool-active flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold border border-slate-700"><span>👆</span><span class="hidden md:inline">Chuột</span></button>
+      <button id="tool-pen" onclick="setDrawTool('pen')" class="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold border border-slate-700"><span>✏️</span><span class="hidden md:inline">Bút</span></button>
+      <button id="tool-highlighter" onclick="setDrawTool('highlighter')" class="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold border border-slate-700"><span>🖍️</span></button>
+      <button id="tool-eraser" onclick="setDrawTool('eraser')" class="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs font-semibold border border-slate-700"><span>🧹</span><span class="hidden md:inline">Tẩy</span></button>
+      <div class="h-3.5 w-[1px] bg-slate-700 mx-0.5"></div>
       <div class="flex items-center gap-1.5 px-1">
         <button onclick="setPenColor('#ef4444', this)" class="color-btn color-dot-active w-3.5 h-3.5 rounded-full bg-[#ef4444]"></button>
         <button onclick="setPenColor('#2563eb', this)" class="color-btn w-3.5 h-3.5 rounded-full bg-[#2563eb]"></button>
         <button onclick="setPenColor('#10b981', this)" class="color-btn w-3.5 h-3.5 rounded-full bg-[#10b981]"></button>
+        <button onclick="setPenColor('#f59e0b', this)" class="color-btn w-3.5 h-3.5 rounded-full bg-[#f59e0b]"></button>
+        <button onclick="setPenColor('#0f172a', this)" class="color-btn w-3.5 h-3.5 rounded-full bg-[#0f172a] border border-slate-400"></button>
       </div>
-      <button onclick="undoLastStroke()" class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 text-xs">↩️</button>
-      <button onclick="clearCurrentSlideDrawing()" class="px-2 py-0.5 rounded bg-rose-900 text-rose-100 text-xs">🗑️</button>
+      <div class="flex items-center gap-0.5 bg-slate-800 px-1 py-0.5 rounded border border-slate-700">
+        <button onclick="setStrokeWidth(2.5, this)" class="size-btn px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-600 text-white">Nhỏ</button>
+        <button onclick="setStrokeWidth(4.5, this)" class="size-btn px-1.5 py-0.2 rounded text-[10px] font-bold text-slate-300 hover:bg-slate-700">Vừa</button>
+        <button onclick="setStrokeWidth(8, this)" class="size-btn px-1.5 py-0.2 rounded text-[10px] font-bold text-slate-300 hover:bg-slate-700">To</button>
+      </div>
+      <button onclick="undoLastStroke()" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700" title="Hoàn tác">↩️</button>
+      <button onclick="clearCurrentSlideDrawing()" class="px-2 py-0.5 rounded bg-rose-900/90 hover:bg-rose-800 text-rose-100 text-xs font-semibold border border-rose-700" title="Xóa nét">🗑️</button>
     </div>
 
     <div class="flex items-center gap-1.5 shrink-0">
       <button onclick="toggleDrawToolbar()" class="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 px-2.5 py-1 rounded-md text-xs font-semibold">
-        <span>✏️ Bảng vẽ</span>
+        <span>✏️</span><span>Bảng vẽ</span>
+        <span id="draw-status-badge" class="w-2 h-2 rounded-full bg-slate-500"></span>
       </button>
       <button onclick="openSlideListModal()" class="flex items-center gap-1 bg-[#1f2937] hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-md text-xs font-semibold">
-        <span>☰ Mục lục (${slidesArray.length})</span>
+        <span>☰</span><span>Mục lục (${slidesArray.length})</span>
+      </button>
+      <button onclick="toggleFullScreen()" class="flex items-center gap-1 bg-[#1f2937] hover:bg-slate-700 text-slate-200 border border-slate-700 px-2 py-1 rounded-md text-xs font-semibold" title="Toàn màn hình">
+        <span>⛶</span>
       </button>
     </div>
   </header>
@@ -537,7 +571,7 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
         <div id="slide-scroll-inner" class="relative w-full min-h-full px-5 py-4 sm:px-8 sm:py-6 flex flex-col justify-start">
           <div class="mb-3 flex flex-wrap items-center justify-between gap-2 shrink-0 relative z-20 pointer-events-none">
             <div class="flex flex-wrap items-center gap-2">
-              <span id="lesson-badge" class="inline-block bg-amber-500 text-slate-950 font-extrabold text-xs sm:text-sm px-3 py-1 rounded-full uppercase"></span>
+              <span id="lesson-badge" class="inline-block bg-amber-500 text-slate-950 font-extrabold text-xs sm:text-sm px-3 py-1 rounded-full uppercase tracking-wide"></span>
               <span id="part-badge" class="inline-block bg-[#eff6ff] text-[#2563eb] border border-[#bfdbfe] font-bold text-xs sm:text-sm px-3.5 py-1 rounded-full"></span>
             </div>
             <span id="sub-ref-badge" class="text-xs sm:text-sm font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full"></span>
@@ -551,7 +585,17 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
             <div id="question-text" class="text-slate-900 font-bold text-xl sm:text-2xl lg:text-[26px] leading-snug flex-1 pt-0.5"></div>
           </div>
 
-          <div id="options-container" class="w-full relative z-20"></div>
+          <div id="interactive-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-7 items-center my-auto py-1 shrink-0 relative z-20">
+            <div id="options-container" class="lg:col-span-7 w-full"></div>
+            <div id="figure-container" class="lg:col-span-5 w-full hidden">
+              <div class="bg-[#f8fafc] border-2 border-[#e2e8f0] rounded-[16px] p-4 shadow-inner flex flex-col items-center justify-center relative">
+                <div id="svg-wrapper" class="w-full flex items-center justify-center overflow-hidden"></div>
+                <button onclick="openZoomFigureModal()" class="mt-2.5 inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition">
+                  <span>🔍</span> <span>Phóng to hình</span>
+                </button>
+              </div>
+            </div>
+          </div>
 
           <div id="solution-container" class="hidden mt-5 pt-4 border-t-2 border-dashed border-slate-200 shrink-0 relative z-20">
             <div class="bg-emerald-50/95 border-l-4 border-emerald-500 rounded-r-xl p-4 sm:p-5 shadow-sm">
@@ -572,17 +616,30 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
 
   <footer class="bg-[#0b1120] border-t border-slate-800/80 px-3 sm:px-5 py-1 flex items-center justify-between gap-2 z-40 shrink-0 min-h-[38px]">
     <button id="prev-btn" onclick="prevSlide()" class="bg-[#172554] hover:bg-[#1e3a8a] text-slate-200 font-bold text-xs sm:text-sm px-3.5 py-1 rounded-lg">◀ Slide trước</button>
-    <span id="footer-slide-counter" class="text-white font-bold text-xs sm:text-sm"></span>
+    <div class="text-center flex-1 px-1 truncate">
+      <span id="footer-slide-counter" class="text-white font-bold text-xs sm:text-sm"></span>
+      <span class="hidden lg:inline text-slate-400 text-xs ml-2">(Phím <strong>←/→</strong> chuyển câu • <strong>Space</strong> hiện đáp án)</span>
+    </div>
     <button id="next-btn" onclick="nextSlide()" class="bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-xs sm:text-sm px-3.5 py-1 rounded-lg">Slide tiếp ▶</button>
   </footer>
 
   <div id="slide-list-modal" class="fixed inset-0 bg-slate-950/80 z-50 hidden items-center justify-center p-4">
-    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-5xl w-full max-h-[88vh] flex flex-col overflow-hidden">
       <div class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
-        <h2 class="text-white font-bold text-base sm:text-lg">Mục lục bài giảng (${slidesArray.length} Slide)</h2>
+        <h2 class="text-white font-bold text-base sm:text-lg">Mục lục toàn bộ bài giảng (${slidesArray.length} Slide)</h2>
         <button onclick="closeSlideListModal()" class="text-slate-400 hover:text-white bg-slate-800 w-8 h-8 rounded-lg font-bold">✕</button>
       </div>
-      <div id="modal-questions-grid" class="p-4 overflow-y-auto grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2"></div>
+      <div id="modal-questions-grid" class="p-4 overflow-y-auto grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2"></div>
+    </div>
+  </div>
+
+  <div id="zoom-figure-modal" class="fixed inset-0 bg-slate-950/90 z-50 hidden flex-col">
+    <div class="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between">
+      <span class="text-amber-400 font-bold text-sm">Phóng to hình vẽ</span>
+      <button onclick="closeZoomFigureModal()" class="px-3.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm">Đóng ✕</button>
+    </div>
+    <div class="flex-1 flex items-center justify-center p-4 overflow-auto">
+      <div id="zoom-svg-holder" class="bg-white rounded-2xl p-6 shadow-2xl max-w-4xl w-full flex items-center justify-center"></div>
     </div>
   </div>
 
@@ -593,11 +650,17 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
     let userMCQChoice = new Array(SLIDES.length).fill(null);
     let userTFChoices = SLIDES.map(() => ({}));
     let slideDrawings = SLIDES.map(() => []);
-    let currentStroke = null, drawTool = 'cursor', penColor = '#ef4444', baseStrokeWidth = 2.8, isPointerDown = false;
+    let currentStroke = null, drawTool = 'cursor', penColor = '#ef4444', baseStrokeWidth = 2.5, isPointerDown = false;
 
     const canvas = document.getElementById('drawing-canvas');
     const ctx = canvas.getContext('2d');
     const scrollInner = document.getElementById('slide-scroll-inner');
+    const eraserCursor = document.getElementById('eraser-cursor');
+
+    function jumpToLesson(num) {
+      const idx = SLIDES.findIndex(s => s.lesson === num);
+      if (idx !== -1) { currentSlideIndex = idx; renderSlide(); }
+    }
 
     function resizeCanvas() {
       const width = scrollInner.scrollWidth;
@@ -619,10 +682,14 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
         const el = document.getElementById('tool-' + t);
         if (el) el.classList.toggle('tool-active', t === tool);
       });
+      const badge = document.getElementById('draw-status-badge');
       if (tool === 'cursor') {
         canvas.classList.replace('drawing-active', 'drawing-inactive');
+        if (badge) badge.className = 'w-2 h-2 rounded-full bg-slate-500';
+        eraserCursor.style.display = 'none';
       } else {
         canvas.classList.replace('drawing-inactive', 'drawing-active');
+        if (badge) badge.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
       }
     }
 
@@ -631,6 +698,12 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
       document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('color-dot-active'));
       if (btnEl) btnEl.classList.add('color-dot-active');
       if (drawTool === 'cursor' || drawTool === 'eraser') setDrawTool('pen');
+    }
+
+    function setStrokeWidth(w, btnEl) {
+      baseStrokeWidth = w;
+      document.querySelectorAll('.size-btn').forEach(b => b.className = 'size-btn px-1.5 py-0.2 rounded text-[10px] font-bold text-slate-300 hover:bg-slate-700');
+      if (btnEl) btnEl.className = 'size-btn px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-600 text-white';
     }
 
     function toggleDrawToolbar() {
@@ -650,14 +723,16 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
       return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     }
 
+    let pointerStartPos = null;
     canvas.addEventListener('pointerdown', (e) => {
       if (drawTool === 'cursor') return;
       canvas.setPointerCapture(e.pointerId);
       isPointerDown = true;
+      pointerStartPos = { x: e.clientX, y: e.clientY };
       currentStroke = {
         tool: drawTool,
         color: penColor,
-        width: drawTool === 'highlighter' ? 14 : (drawTool === 'eraser' ? 22 : baseStrokeWidth),
+        width: drawTool === 'highlighter' ? baseStrokeWidth * 4 : (drawTool === 'eraser' ? baseStrokeWidth * 7 : baseStrokeWidth),
         points: [getRelativePoint(e)]
       };
       slideDrawings[currentSlideIndex].push(currentStroke);
@@ -665,13 +740,32 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
     });
 
     canvas.addEventListener('pointermove', (e) => {
+      if (drawTool === 'eraser') {
+        eraserCursor.style.display = 'block';
+        eraserCursor.style.width = eraserCursor.style.height = (baseStrokeWidth * 7) + 'px';
+        eraserCursor.style.left = e.clientX + 'px';
+        eraserCursor.style.top = e.clientY + 'px';
+      }
       if (!isPointerDown || !currentStroke) return;
       const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       events.forEach(ev => currentStroke.points.push(getRelativePoint(ev)));
       redrawCanvas();
     });
 
-    canvas.addEventListener('pointerup', () => { isPointerDown = false; currentStroke = null; });
+    canvas.addEventListener('pointerup', (e) => {
+      if (!isPointerDown) return;
+      isPointerDown = false;
+      if (pointerStartPos && Math.hypot(e.clientX - pointerStartPos.x, e.clientY - pointerStartPos.y) < 5) {
+        canvas.style.pointerEvents = 'none';
+        const underEl = document.elementFromPoint(e.clientX, e.clientY);
+        canvas.style.pointerEvents = '';
+        const clickableBtn = underEl ? underEl.closest('button') : null;
+        if (clickableBtn) { slideDrawings[currentSlideIndex].pop(); redrawCanvas(); clickableBtn.click(); }
+      }
+      currentStroke = null;
+      pointerStartPos = null;
+      eraserCursor.style.display = 'none';
+    });
 
     function redrawCanvas() {
       const width = scrollInner.scrollWidth;
@@ -683,18 +777,9 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.lineWidth = st.width;
-        if (st.tool === 'eraser') {
-          ctx.globalCompositeOperation = 'destination-out';
-          ctx.strokeStyle = 'rgba(0,0,0,1)';
-        } else if (st.tool === 'highlighter') {
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.globalAlpha = 0.32;
-          ctx.strokeStyle = st.color;
-        } else {
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.globalAlpha = 1.0;
-          ctx.strokeStyle = st.color;
-        }
+        if (st.tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = 'rgba(0,0,0,1)'; }
+        else if (st.tool === 'highlighter') { ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 0.32; ctx.strokeStyle = st.color; }
+        else { ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1.0; ctx.strokeStyle = st.color; }
         ctx.beginPath();
         ctx.moveTo(st.points[0].x, st.points[0].y);
         for (let i = 1; i < st.points.length - 1; i++) {
@@ -707,15 +792,17 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
     }
     function undoLastStroke() { slideDrawings[currentSlideIndex].pop(); redrawCanvas(); }
     function clearCurrentSlideDrawing() { slideDrawings[currentSlideIndex] = []; redrawCanvas(); }
-
-    function selectTFChoice(idx, val) {
-      userTFChoices[currentSlideIndex][idx] = val;
-      renderSlide();
-    }
+    function selectTFChoice(idx, val) { userTFChoices[currentSlideIndex][idx] = val; renderSlide(); }
 
     function renderSlide() {
+      if (!SLIDES.length) return;
       const q = SLIDES[currentSlideIndex];
       const isRevealed = revealedSlides[currentSlideIndex];
+      [1, 2, 3, 4].forEach(num => {
+        const tab = document.getElementById('tab-b' + num);
+        if (tab) tab.classList.toggle('lesson-tab-active', (q.lesson || 1) === num);
+      });
+
       document.getElementById('progress-bar').style.width = ((currentSlideIndex + 1) / SLIDES.length * 100) + '%';
       document.getElementById('lesson-badge').textContent = q.lessonTitle;
       document.getElementById('part-badge').textContent = q.part;
@@ -725,7 +812,20 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
       const qBtn = document.getElementById('question-btn');
       const qText = document.getElementById('question-text');
       const optBox = document.getElementById('options-container');
+      const figBox = document.getElementById('figure-container');
+      const svgWrap = document.getElementById('svg-wrapper');
       const solBox = document.getElementById('solution-container');
+
+      if (q.figureHtml) {
+        figBox.classList.remove('hidden');
+        optBox.className = 'lg:col-span-7 w-full';
+        svgWrap.innerHTML = q.figureHtml;
+      } else {
+        figBox.classList.add('hidden');
+        optBox.className = 'lg:col-span-12 w-full';
+        svgWrap.innerHTML = '';
+      }
+
       optBox.innerHTML = '';
 
       if (q.type === 'theory') {
@@ -781,7 +881,7 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
           });
           optBox.appendChild(tableDiv);
         } else if (q.type === 'short') {
-          optBox.innerHTML = '<div class="bg-slate-50 border-2 border-slate-200 rounded-xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"><div class="text-slate-700 font-semibold text-lg sm:text-xl">Bấm vào nút <strong>"' + q.label + ' Ấn xem đáp án"</strong> để hiện kết quả:</div><div class="px-6 py-3 rounded-xl border-2 font-extrabold text-xl sm:text-2xl ' + (isRevealed ? 'bg-emerald-100 border-emerald-500 text-emerald-900' : 'bg-white border-slate-300 text-slate-400') + '">' + (isRevealed ? ('Đáp số: ' + q.shortAnswer) : 'Đáp số: ?') + '</div></div>';
+          optBox.innerHTML = '<div class="bg-slate-50 border-2 border-slate-200 rounded-xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"><div class="text-slate-700 font-semibold text-lg sm:text-xl">Bấm vào nút <strong>"' + q.label + ' Ấn xem đáp án"</strong> hoặc phím <strong>Space</strong> để hiện kết quả:</div><div class="px-6 py-3 rounded-xl border-2 font-extrabold text-xl sm:text-2xl ' + (isRevealed ? 'bg-emerald-100 border-emerald-500 text-emerald-900' : 'bg-white border-slate-300 text-slate-400') + '">' + (isRevealed ? ('Đáp số: ' + q.shortAnswer) : 'Đáp số: ?') + '</div></div>';
         }
 
         if (isRevealed) {
@@ -802,27 +902,41 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
     }
 
     function toggleSolution() {
-      if (SLIDES[currentSlideIndex].type === 'theory') return;
+      if (!SLIDES.length || SLIDES[currentSlideIndex].type === 'theory') return;
       revealedSlides[currentSlideIndex] = !revealedSlides[currentSlideIndex];
       renderSlide();
     }
-    function prevSlide() { if (currentSlideIndex > 0) { currentSlideIndex--; renderSlide(); } }
-    function nextSlide() { if (currentSlideIndex < SLIDES.length - 1) { currentSlideIndex++; renderSlide(); } }
+    function prevSlide() { if (currentSlideIndex > 0) { currentSlideIndex--; document.getElementById('slide-content-scroll').scrollTop = 0; renderSlide(); } }
+    function nextSlide() { if (currentSlideIndex < SLIDES.length - 1) { currentSlideIndex++; document.getElementById('slide-content-scroll').scrollTop = 0; renderSlide(); } }
     function openSlideListModal() {
       const grid = document.getElementById('modal-questions-grid');
       grid.innerHTML = '';
       SLIDES.forEach((s, i) => {
         const b = document.createElement('button');
         b.className = 'p-2 rounded-lg border text-left text-xs font-bold ' + (i === currentSlideIndex ? 'bg-blue-600 text-white border-blue-400' : 'bg-slate-800 text-slate-200 border-slate-700');
-        b.innerHTML = '<div>' + s.label + '</div><div class="text-[10px] opacity-75 truncate">' + s.part + '</div>';
+        b.innerHTML = '<div class="flex justify-between"><span>' + s.label + '</span>' + (s.figureHtml ? '<span>📐</span>' : '') + '</div><div class="text-[10px] opacity-75 truncate">' + s.subRef + '</div>';
         b.onclick = () => { currentSlideIndex = i; closeSlideListModal(); renderSlide(); };
         grid.appendChild(b);
       });
       document.getElementById('slide-list-modal').classList.replace('hidden', 'flex');
     }
-    function closeSlideListModal() {
-      document.getElementById('slide-list-modal').classList.replace('flex', 'hidden');
+    function closeSlideListModal() { document.getElementById('slide-list-modal').classList.replace('flex', 'hidden'); }
+    function openZoomFigureModal() {
+      const q = SLIDES[currentSlideIndex];
+      if (!q || !q.figureHtml) return;
+      document.getElementById('zoom-svg-holder').innerHTML = q.figureHtml;
+      document.getElementById('zoom-figure-modal').classList.replace('hidden', 'flex');
     }
+    function closeZoomFigureModal() { document.getElementById('zoom-figure-modal').classList.replace('flex', 'hidden'); }
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      else document.exitFullscreen().catch(() => {});
+    }
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') nextSlide();
+      else if (e.key === 'ArrowLeft') prevSlide();
+      else if (e.key === ' ') { e.preventDefault(); toggleSolution(); }
+    });
     window.onload = renderSlide;
   </script>
 </body>
@@ -830,19 +944,19 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
 }
 
 export default function App() {
+  // NHỚ DÁN ĐƯỜNG LINK GOOGLE APPS SCRIPT CỦA BẠN VÀO DÒNG DƯỚI ĐÂY:
+  const GAS_DRIVE_URL = 'https://script.google.com/macros/s/AKfycbxfN16PRs1KoS9JHW6-HR-EQZW9qgH6BpPJtmSpa-a3ZKaZuGwi2xlEw_ppZzfAsBMT/exec';
   const [activeTab, setActiveTab] = useState('lessons');
   const [selectedGrade, setSelectedGrade] = useState(10);
-  // Phân hệ đang chọn: 'school' (Lớp Trường) hoặc 'home' (Lớp Nhà)
   const [selectedCategory, setSelectedCategory] = useState('home');
 
-  // Trạng thái Đăng nhập: Giáo viên (Supabase Auth) & Học sinh (Bảng student_accounts)
   const [isTeacher, setIsTeacher] = useState(false);
   const [currentStudent, setCurrentStudent] = useState(() => {
     const saved = localStorage.getItem('vy_student_session');
     return saved ? JSON.parse(saved) : null;
   });
-  const [loginMode, setLoginMode] = useState('student'); // 'student' | 'teacher'
-  const [loginId, setLoginId] = useState(''); // Mã HS (VD: 001) hoặc Email GV
+  const [loginMode, setLoginMode] = useState('student');
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
 
   const [isExpandedView, setIsExpandedView] = useState(false);
@@ -860,23 +974,28 @@ export default function App() {
     schedule_note: 'Lịch học và thông báo mới nhất sẽ được cập nhật tại đây.'
   });
 
+  // Bộ nhớ đệm Google Drive
+  const [driveContentCache, setDriveContentCache] = useState({});
+  const [isLoadingDriveFile, setIsLoadingDriveFile] = useState(false);
+
   // Form thêm mới (Dành cho Giáo viên)
   const [newTitle, setNewTitle] = useState('');
   const [driveInput, setDriveInput] = useState('');
   const [htmlContentInput, setHtmlContentInput] = useState('');
-  const [uploadCategory, setUploadCategory] = useState('home'); // Chọn up bên Trường hay Nhà
+  const [uploadCategory, setUploadCategory] = useState('home');
 
-  // Form Quản lý Học sinh (Tự động cấp mã 3 số 001 -> 999)
+  // Form Quản lý Học sinh & Đổi mật khẩu
   const [newStuName, setNewStuName] = useState('');
   const [newStuClass, setNewStuClass] = useState('');
   const [newStuPassword, setNewStuPassword] = useState('123456');
   const [newStuCode, setNewStuCode] = useState('');
   const [newStuPhone, setNewStuPhone] = useState('');
-  const [selectedClassFilter, setSelectedClassFilter] = useState('ALL'); // Chọn lọc theo từng lớp
-  const [allSubmissions, setAllSubmissions] = useState([]);              // Lưu toàn bộ điểm bài kiểm tra
-  const [bulkImportText, setBulkImportText] = useState('');              // Khung dán nhanh danh sách từ Excel/Word
-  const [showBulkModal, setShowBulkModal] = useState(false);             // Bật/tắt bảng nhập hàng loạt
-  const [editingStudent, setEditingStudent] = useState(null); // Lưu thông tin học sinh đang bấm Sửa
+  const [selectedClassFilter, setSelectedClassFilter] = useState('ALL');
+  const [allSubmissions, setAllSubmissions] = useState([]);
+  const [bulkImportText, setBulkImportText] = useState('');
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [editingStudent, setEditingStudent] = useState(null);
+
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [oldPassInput, setOldPassInput] = useState('');
   const [newPassInput, setNewPassInput] = useState('');
@@ -910,7 +1029,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [submissionsList, setSubmissionsList] = useState([]);
   const [rawQuizText, setRawQuizText] = useState('');
 
-  // Kiểm tra phiên Giáo viên
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setIsTeacher(!!session);
@@ -921,7 +1039,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return () => subscription.unsubscribe();
   }, []);
 
-  // Nếu là Học sinh đăng nhập: Khóa chặt Khối và Phân hệ (Trường/Nhà) theo tài khoản học sinh đó
   const effectiveGrade = isTeacher ? selectedGrade : (currentStudent?.grade || 10);
   const effectiveCategory = isTeacher ? selectedCategory : (currentStudent?.category || 'home');
 
@@ -941,7 +1058,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   }, [converterTitle, converterRawText]);
 
   async function fetchData() {
-    // 1. Tải Bài học theo đúng Khối + Phân hệ (Trường / Nhà)
     const { data: lessonData } = await supabase
       .from('lessons')
       .select('*')
@@ -949,40 +1065,37 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       .eq('category', effectiveCategory)
       .order('created_at', { ascending: false });
 
-    const filteredLessons = isTeacher ? (lessonData || []) : (lessonData || []).filter(l => l.is_active);
+    const filteredLessons = isTeacher ? (lessonData || []) : (lessonData || []).filter((l) => l.is_active);
     setLessons(filteredLessons);
     if (filteredLessons.length > 0) {
-      setSelectedLesson(filteredLessons[0]);
+      setSelectedLesson((prev) => filteredLessons.find((x) => x.id === prev?.id) || filteredLessons[0]);
     } else {
       setSelectedLesson(null);
     }
 
-    // 2. Tải Tài liệu theo đúng Khối + Phân hệ (Trường / Nhà)
     const { data: docData } = await supabase
       .from('documents')
       .select('*')
       .eq('grade', effectiveGrade)
       .eq('category', effectiveCategory)
       .order('created_at', { ascending: false });
-    setDocuments(isTeacher ? (docData || []) : (docData || []).filter(d => d.is_active));
+    setDocuments(isTeacher ? (docData || []) : (docData || []).filter((d) => d.is_active));
 
-    // 3. Tải Bài tập theo đúng Khối + Phân hệ (Trường / Nhà)
     const { data: exData } = await supabase
       .from('exercises')
       .select('*')
       .eq('grade', effectiveGrade)
       .eq('category', effectiveCategory)
       .order('created_at', { ascending: false });
-    setExercises(isTeacher ? (exData || []) : (exData || []).filter(e => e.is_active));
+    setExercises(isTeacher ? (exData || []) : (exData || []).filter((e) => e.is_active));
 
-    // 4. Tải Thông tin GV
     const { data: infoData } = await supabase
       .from('teacher_info')
       .select('*')
       .eq('id', 1)
       .single();
     if (infoData) setTeacherInfo(infoData);
-// 5. Nếu là Giáo viên: Tải danh sách tài khoản học sinh + Toàn bộ điểm bài kiểm tra
+
     if (isTeacher) {
       const { data: stuData } = await supabase
         .from('student_accounts')
@@ -990,15 +1103,12 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
         .order('student_code', { ascending: true });
       setStudentsList(stuData || []);
 
-      // Tải toàn bộ bài nộp & tên đề kiểm tra để gắn vào hồ sơ từng học sinh
       const { data: subData } = await supabase
         .from('submissions')
         .select('*, exercises(title)')
         .order('created_at', { ascending: false });
       setAllSubmissions(subData || []);
 
-      // Tự động tính mã 3 số tiếp theo (001 -> 999, quá 999 reset về 000)
-      // Tự động tính mã 4 số tiếp theo (0001 -> 9999, quá 9999 reset về 0000)
       if (stuData && stuData.length > 0) {
         const maxNum = stuData.reduce((max, s) => {
           const n = parseInt(s.student_code, 10);
@@ -1009,7 +1119,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       } else {
         setNewStuCode('0001');
       }
-    }   
+    }
   }
 
   const extractDriveId = (input) => {
@@ -1018,7 +1128,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return match ? match[0] : input.trim();
   };
 
-  // ================= XỬ LÝ ĐĂNG NHẬP HỌC SINH (MÃ 4 SỐ) & GIÁO VIÊN =================
+  // ================= ĐĂNG NHẬP, ĐỔI MẬT KHẨU & QUẢN LÝ HỌC SINH =================
   const handleUnifiedLogin = async (e) => {
     e.preventDefault();
     if (loginMode === 'teacher') {
@@ -1030,7 +1140,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       setLoginId('');
       setPassword('');
     } else {
-      // Học sinh đăng nhập bằng Mã HS 4 số (VD: gõ 1 hoặc 0001 đều tự hiểu là 0001)
       const rawCode = loginId.trim();
       const padded4Code = /^\d+$/.test(rawCode) ? rawCode.padStart(4, '0').slice(-4) : rawCode;
       const padded3Code = /^\d+$/.test(rawCode) ? rawCode.padStart(3, '0') : rawCode;
@@ -1043,7 +1152,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
         .maybeSingle();
 
       if (error || !stu) {
-        return alert('Sai Mã học sinh (4 số) hoặc Mật khẩu! Em vui lòng kiểm tra lại.');
+        return alert('Sai Số báo danh (Mã HS) hoặc Mật khẩu! Em vui lòng kiểm tra lại.');
       }
       setCurrentStudent(stu);
       localStorage.setItem('vy_student_session', JSON.stringify(stu));
@@ -1061,7 +1170,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     setActiveTab('lessons');
   };
 
-  // ================= ĐỔI MẬT KHẨU CHO CẢ HỌC SINH & GIÁO VIÊN =================
   const handleChangePassword = async (e) => {
     e.preventDefault();
     if (!newPassInput.trim() || newPassInput.trim().length < 4) {
@@ -1072,7 +1180,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
 
     if (isTeacher) {
-      // Giáo viên đổi mật khẩu qua Supabase Auth (Yêu cầu từ 6 ký tự trở lên)
       if (newPassInput.trim().length < 6) {
         return alert('Mật khẩu Giáo viên cần tối thiểu 6 ký tự!');
       }
@@ -1080,7 +1187,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       if (error) return alert('Lỗi đổi mật khẩu Giáo viên: ' + error.message);
       alert('Đã đổi mật khẩu Giáo viên thành công!');
     } else if (currentStudent) {
-      // Học sinh đổi mật khẩu: Kiểm tra mật khẩu hiện tại trước
       if (oldPassInput.trim() !== currentStudent.password) {
         return alert('Mật khẩu hiện tại không đúng!');
       }
@@ -1102,7 +1208,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     setShowPasswordModal(false);
   };
 
-  // ================= GIÁO VIÊN SỬA TOÀN BỘ THÔNG TIN & SỐ BÁO DANH HỌC SINH =================
   const handleUpdateStudentAccount = async (e) => {
     e.preventDefault();
     if (!editingStudent) return;
@@ -1115,7 +1220,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       return alert('Vui lòng không để trống Số báo danh (Mã HS), Họ tên và Lớp!');
     }
 
-    // Giữ nguyên số báo danh giáo viên tự gõ (nếu chỉ gõ 1-2 số như "5" thì tự lấp số 0 thành "005" hoặc giữ đúng ý giáo viên)
     const formattedCode = /^\d+$/.test(rawCode) && rawCode.length < 3
       ? rawCode.padStart(3, '0')
       : rawCode;
@@ -1134,10 +1238,9 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       .eq('id', editingStudent.id);
 
     if (error) {
-      return alert('Lỗi cập nhật (Có thể Số báo danh vừa sửa bị trùng với học sinh khác): ' + error.message);
+      return alert('Lỗi cập nhật (Có thể Số báo danh bị trùng): ' + error.message);
     }
 
-    // Tự động cập nhật lại Mã HS & Họ tên trong bảng điểm kiểm tra cũ (nếu học sinh này đã có điểm)
     if (editingStudent.old_code && (editingStudent.old_code !== formattedCode || editingStudent.old_name !== rawName)) {
       const oldPrefix = `${editingStudent.old_code} - ${editingStudent.old_name}`;
       const newPrefix = `${formattedCode} - ${rawName}`;
@@ -1150,8 +1253,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     setEditingStudent(null);
     fetchData();
   };
-  
-  
+
   const handleResetStudentPassword = async (stu) => {
     const newPass = window.prompt(
       `Nhập mật khẩu mới để Reset cho học sinh [${stu.student_code}] ${stu.full_name}:`,
@@ -1215,11 +1317,10 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     else fetchData();
   };
 
-  // ================= TẢI FILE EXCEL MẪU CHUẨN (.XLSX) ĐỂ NHẬP KHÔNG BAO GIỜ LỆCH CỘT =================
   const handleDownloadSampleExcel = () => {
     if (!window.XLSX) return alert('Thư viện Excel đang tải, vui lòng thử lại sau 2 giây!');
-    const sampleDefaultClass = selectedClassFilter !== 'ALL' 
-      ? selectedClassFilter 
+    const sampleDefaultClass = selectedClassFilter !== 'ALL'
+      ? selectedClassFilter
       : (selectedCategory === 'school' ? `${selectedGrade}A1` : `Toán ${selectedGrade} - Ca 1`);
 
     const wsData = [
@@ -1236,7 +1337,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     window.XLSX.writeFile(wb, `Mau_Nhap_Hoc_Sinh_Khoi_${selectedGrade}.xlsx`);
   };
 
-  // Đọc file Excel theo đúng cấu trúc File Mẫu (Hoặc bảng danh sách lớp bất kỳ)
   const handleExcelFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1250,23 +1350,21 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
 
       if (rows.length === 0) return alert('File Excel trống!');
 
-      // Nhận diện vị trí các cột dựa trên dòng tiêu đề đầu tiên
       const headerRow = (rows[0] || []).map((c) => String(c || '').toLowerCase().trim());
       const hasHeader = headerRow.some((h) => /họ|tên|lớp|mã|stt|sđt|điện thoại|mật khẩu/.test(h));
 
-      let idxCode = headerRow.findIndex((h) => /mã\s*hs|mã\s*học\s*sinh|mã\s*số/.test(h));
+      let idxCode = headerRow.findIndex((h) => /mã\s*hs|mã\s*học\s*sinh|mã\s*số|sbd/.test(h));
       let idxName = headerRow.findIndex((h) => /họ\s*và\s*tên|họ\s*tên|tên/.test(h));
       let idxClass = headerRow.findIndex((h) => /^lớp|tên\s*lớp/.test(h));
       let idxPhone = headerRow.findIndex((h) => /điện\s*thoại|sđt|phone/.test(h));
       let idxPass = headerRow.findIndex((h) => /mật\s*khẩu|pass/.test(h));
 
-      // Nếu đúng chuẩn File Mẫu 5 cột: [Mã HS, Họ và tên, Lớp, SĐT, Mật khẩu]
       if (idxName === -1) {
         idxCode = 0; idxName = 1; idxClass = 2; idxPhone = 3; idxPass = 4;
       }
 
-      const defaultCls = selectedClassFilter !== 'ALL' 
-        ? selectedClassFilter 
+      const defaultCls = selectedClassFilter !== 'ALL'
+        ? selectedClassFilter
         : (newStuClass || (selectedCategory === 'school' ? `${selectedGrade}A1` : `Ca 1`));
 
       const formattedLines = [];
@@ -1296,7 +1394,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   };
 
-  // Lưu hàng loạt danh sách học sinh (Hỗ trợ Mã HS 4 chữ số: 0001 -> 9999)
   const handleConfirmBulkImport = async () => {
     const lines = bulkImportText.split('\n').map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) return alert('Danh sách trống!');
@@ -1306,18 +1403,17 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       return !isNaN(n) && n > max ? n : max;
     }, 0);
 
-    const defaultCls = selectedClassFilter !== 'ALL' 
-      ? selectedClassFilter 
+    const defaultCls = selectedClassFilter !== 'ALL'
+      ? selectedClassFilter
       : (newStuClass.trim() || (uploadCategory === 'school' ? `${selectedGrade}A1` : `Toán ${selectedGrade} - Ca 1`));
 
     const newRecords = lines.map((line) => {
-      const parts = line.includes('|') 
+      const parts = line.includes('|')
         ? line.split('|').map((p) => p.trim())
         : line.includes('\t')
         ? line.split('\t').map((p) => p.trim())
         : line.split(',').map((p) => p.trim());
 
-      // Nếu cột 1 là Mã 4 số hoặc 'AUTO' (từ file Excel mẫu), ngược lại nếu chỉ gõ Họ tên ở cột 1
       let stuCode = '';
       let fullName = '';
       let className = defaultCls;
@@ -1359,9 +1455,9 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
 
     const { error } = await supabase.from('student_accounts').insert(newRecords);
     if (error) {
-      alert('Lỗi khi nhập hàng loạt (Kiểm tra trùng Mã HS): ' + error.message);
+      alert('Lỗi khi nhập hàng loạt (Kiểm tra trùng Số báo danh): ' + error.message);
     } else {
-      alert(`Đã tạo thành công ${newRecords.length} tài khoản học sinh (Mã 4 số) vào [${uploadCategory === 'school' ? 'Lớp Trường' : 'Lớp Nhà'} - Khối ${selectedGrade}]!`);
+      alert(`Đã tạo thành công ${newRecords.length} tài khoản học sinh!`);
       setBulkImportText('');
       setShowBulkModal(false);
       setSelectedCategory(uploadCategory);
@@ -1369,14 +1465,13 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   };
 
-  // Tạo lẻ 1 tài khoản học sinh (Mã 4 chữ số: 0001 -> 9999)
   const handleCreateStudentAccount = async (e) => {
     e.preventDefault();
     if (!newStuName.trim() || !newStuClass.trim() || !newStuCode.trim()) {
-      return alert('Vui lòng nhập đầy đủ Mã HS (4 số), Họ tên và Lớp!');
+      return alert('Vui lòng nhập đầy đủ Số báo danh (Mã HS), Họ tên và Lớp!');
     }
-    const formattedCode = /^\d+$/.test(newStuCode.trim()) 
-      ? newStuCode.trim().padStart(4, '0').slice(-4) 
+    const formattedCode = /^\d+$/.test(newStuCode.trim()) && newStuCode.trim().length < 3
+      ? newStuCode.trim().padStart(3, '0')
       : newStuCode.trim();
 
     const { error } = await supabase.from('student_accounts').insert([{
@@ -1390,7 +1485,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }]);
 
     if (error) {
-      alert('Lỗi tạo tài khoản (Có thể trùng Mã học sinh): ' + error.message);
+      alert('Lỗi tạo tài khoản (Có thể trùng Số báo danh): ' + error.message);
     } else {
       setNewStuName('');
       setNewStuPhone('');
@@ -1403,15 +1498,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     localStorage.setItem('vy_gemini_key', val);
   };
 
-// DÁN LINK GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY:
-  const GAS_DRIVE_URL = 'https://script.google.com/macros/s/AKfycbxfN16PRs1KoS9JHW6-HR-EQZW9qgH6BpPJtmSpa-a3ZKaZuGwi2xlEw_ppZzfAsBMT/exec';
-
-  // Bộ nhớ tạm trên trình duyệt giúp mở lại bài đã xem trong 0 giây mà không tốn Supabase
-  const [driveContentCache, setDriveContentCache] = useState({});
-  const [isLoadingDriveFile, setIsLoadingDriveFile] = useState(false);
-
- 
-  // 1. Tạo file mới trên Google Drive
+  // ================= KẾT NỐI ĐỒNG BỘ 2 CHIỀU VỚI GOOGLE DRIVE =================
   const uploadToGoogleDrive = async (fileName, content, mimeType = 'text/html', isBase64 = false) => {
     const res = await fetch(GAS_DRIVE_URL, {
       method: 'POST',
@@ -1423,7 +1510,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return data.fileId;
   };
 
-  // 2. Ghi đè nội dung (Lưu nét viết bảng) thẳng vào file HTML trên Google Drive
   const updateFileOnGoogleDrive = async (fileId, content, fileName = null) => {
     const res = await fetch(GAS_DRIVE_URL, {
       method: 'POST',
@@ -1435,7 +1521,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return data.fileId;
   };
 
-  // 3. Đổi tên file trên Google Drive khi đổi tên trên Web
   const renameFileOnGoogleDrive = async (fileId, newName) => {
     if (!fileId) return;
     try {
@@ -1449,7 +1534,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   };
 
-  // 4. Xóa file trên Google Drive (Đưa vào thùng rác) khi bấm Xóa trên Web
   const deleteFileOnGoogleDrive = async (fileId) => {
     if (!fileId) return;
     try {
@@ -1463,7 +1547,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   };
 
-  // 5. Đọc nội dung HTML / Bài tập từ Google Drive về Web
   const fetchFromGoogleDrive = async (fileId) => {
     if (!fileId) return '';
     if (driveContentCache[fileId]) return driveContentCache[fileId];
@@ -1489,8 +1572,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   }, [selectedLesson]);
 
-  // 6. LẮNG NGHE NÚT "💾 LƯU BẢNG" TỪ TRONG SLIDE HTML:
-  // Cho phép Giáo viên chọn: (1) Lưu đè vào bài hiện tại, hoặc (2) Tạo thành 1 file bài học HTML mới!
+  // Lắng nghe lệnh "💾 Lưu Bảng" từ trong Slide HTML
   useEffect(() => {
     const handleMessageFromIframe = async (event) => {
       if (!event.data || event.data.type !== 'VY_SAVE_SLIDE_DRAWINGS') return;
@@ -1501,18 +1583,21 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       const rawHtml = selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id] || '';
       if (!rawHtml) return alert('Không tìm thấy mã nguồn HTML của bài học này!');
 
-      // Nhúng trực tiếp toàn bộ nét vẽ (window.SAVED_SLIDE_DRAWINGS) vào bên trong mã nguồn file HTML
-      const embeddedScript = `<script id="vy-saved-drawings">window.SAVED_SLIDE_DRAWINGS = ${JSON.stringify(drawingsData)};</script>`;
-      let updatedHtml = rawHtml.replace(/<script id="vy-saved-drawings">[\s\S]*?<\/script>/g, '');
+      const openTag = '<scr' + 'ipt id="vy-saved-drawings">';
+      const closeTag = '</scr' + 'ipt>';
+      const embeddedScript = openTag + 'window.SAVED_SLIDE_DRAWINGS = ' + JSON.stringify(drawingsData) + ';' + closeTag;
+
+      const regexOld = new RegExp(openTag + '[\\s\\S]*?' + closeTag, 'g');
+      let updatedHtml = rawHtml.replace(regexOld, '');
       if (updatedHtml.includes('</head>')) {
-        updatedHtml = updatedHtml.replace('</head>', `${embeddedScript}</head>`);
+        updatedHtml = updatedHtml.replace('</head>', embeddedScript + '</head>');
       } else {
         updatedHtml = embeddedScript + updatedHtml;
       }
 
       const mode = window.prompt(
         `💾 LƯU BÀI VIẾT BẢNG TRÊN GOOGLE DRIVE:\n\n` +
-        `• Nhập số 1: Lưu đè trực tiếp vào bài "${selectedLesson.title}" (Mở lại trên mọi máy đều giữ nguyên nét viết).\n` +
+        `• Nhập số 1: Lưu đè trực tiếp vào bài "${selectedLesson.title}" (Mở lại giữ nguyên nét viết).\n` +
         `• Nhập số 2: Tạo thành một file Bài học HTML mới (Dành riêng cho lớp/ca dạy này).`,
         '1'
       );
@@ -1521,7 +1606,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
 
       try {
         if (mode.trim() === '2') {
-          // TẠO FILE HTML MỚI TRÊN GOOGLE DRIVE & THÊM VÀO DANH SÁCH BÀI HỌC
           const newLessonName = window.prompt(
             'Nhập tên cho Bài học HTML mới (đã kèm nét viết bảng):',
             `${selectedLesson.title} (Đã giải - Ca 1)`
@@ -1554,7 +1638,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
           await fetchData();
           if (inserted) setSelectedLesson(inserted);
         } else {
-          // GHI ĐÈ TRỰC TIẾP LÊN FILE HTML HIỆN TẠI TRÊN GOOGLE DRIVE
           if (selectedLesson.drive_file_id) {
             await updateFileOnGoogleDrive(selectedLesson.drive_file_id, updatedHtml);
             setDriveContentCache((prev) => ({ ...prev, [selectedLesson.drive_file_id]: updatedHtml }));
@@ -1581,7 +1664,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return () => window.removeEventListener('message', handleMessageFromIframe);
   }, [selectedLesson, driveContentCache, isTeacher, selectedGrade, selectedCategory]);
 
-  // 7. HÀM ĐỔI TÊN & XÓA ĐỒNG BỘ CẢ WEB LẪN GOOGLE DRIVE (DÙNG CHO CẢ BÀI HỌC, TÀI LIỆU, BÀI TẬP)
   const handleRenameItemSyncDrive = async (table, item, ext = '.html') => {
     const newName = window.prompt(`Nhập tên mới cho "${item.title}":`, item.title);
     if (!newName || !newName.trim() || newName.trim() === item.title) return;
@@ -1612,7 +1694,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     fetchData();
   };
 
-  
   // ================= AI VISION: CHUYỂN TỪ ẢNH & PDF SANG LATEX + HÌNH VẼ SVG =================
   const convertImagesWithGeminiVision = async (base64Images, appendMode = false) => {
     const prompt = `Bạn là chuyên gia số hóa đề Toán THPT cho hệ thống trình chiếu của Thầy Phan Hoài Vy.
@@ -1784,24 +1865,37 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
   const handleSaveConvertedToLessons = async () => {
     if (!converterTitle.trim()) return alert('Vui lòng nhập Tên bài giảng trước khi lưu!');
-    const fullHtml = buildFullStandaloneHTML(converterTitle, selectedGrade, parsedPreviewSlides);
-    const { error } = await supabase.from('lessons').insert([{
-      title: converterTitle.trim(),
-      grade: selectedGrade,
-      category: uploadCategory,
-      drive_file_id: '',
-      html_cache: fullHtml,
-      is_active: true,
-      show_answers: false
-    }]);
+    setIsExtractingPdf(true);
+    setAiStatusText('Đang tải file HTML bài giảng lên Google Drive...');
+    try {
+      const fullHtml = buildFullStandaloneHTML(converterTitle, selectedGrade, parsedPreviewSlides);
+      const driveFileId = await uploadToGoogleDrive(
+        `[K${selectedGrade}-${uploadCategory.toUpperCase()}] ${converterTitle.trim()}.html`,
+        fullHtml,
+        'text/html'
+      );
 
-    if (error) {
-      alert('Lỗi lưu bài giảng: ' + error.message);
-    } else {
+      const { error } = await supabase.from('lessons').insert([{
+        title: converterTitle.trim(),
+        grade: selectedGrade,
+        category: uploadCategory,
+        drive_file_id: driveFileId,
+        html_cache: null,
+        is_active: true,
+        show_answers: false
+      }]);
+
+      if (error) throw error;
+      setDriveContentCache((prev) => ({ ...prev, [driveFileId]: fullHtml }));
       setSelectedCategory(uploadCategory);
-      alert(`Đã lưu ${parsedPreviewSlides.length} Slide vào [${uploadCategory === 'school' ? 'LỚP TRƯỜNG' : 'LỚP NHÀ'} - Khối ${selectedGrade}]!`);
+      alert(`Đã lưu bài giảng lên Google Drive thành công!`);
       await fetchData();
       setActiveTab('lessons');
+    } catch (err) {
+      alert('Lỗi lưu lên Google Drive: ' + err.message);
+    } finally {
+      setIsExtractingPdf(false);
+      setAiStatusText('');
     }
   };
 
@@ -1817,7 +1911,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     URL.revokeObjectURL(url);
   };
 
-  // ================= XỬ LÝ TAB 1, 2, 3 (CÓ CHỌN UP BÊN TRƯỜNG HAY BÊN NHÀ) =================
+  // ================= XỬ LÝ TAB 1, 2, 3 =================
   const handleFileUploadHTML = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1834,7 +1928,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     }
     try {
       let fileId = extractDriveId(driveInput);
-      // Nếu chọn file .html từ máy -> Tự động đẩy file đó lên Google Drive!
       if (htmlContentInput) {
         fileId = await uploadToGoogleDrive(
           `[K${selectedGrade}-${uploadCategory.toUpperCase()}] ${newTitle.trim()}.html`,
@@ -1849,7 +1942,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
         grade: selectedGrade,
         category: uploadCategory,
         drive_file_id: fileId,
-        html_cache: null, // Tốn 0 KB trên Supabase
+        html_cache: null,
         is_active: true,
         show_answers: false
       }]);
@@ -1877,6 +1970,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   const getRenderedHtml = (lesson) => {
     const rawHtml = lesson?.html_cache || driveContentCache[lesson?.drive_file_id] || '';
     if (!rawHtml) return '';
+    const openScr = '<scr' + 'ipt>';
+    const closeScr = '</scr' + 'ipt>';
     const lockAnswerCode = lesson.show_answers ? '' : `
       <style>
         #solution-container, #reveal-btn-badge, .dap-an, .loi-giai, .answer, .solution {
@@ -1887,11 +1982,11 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           cursor: default !important;
         }
       </style>
-      <script>
+      ${openScr}
         window.addEventListener('DOMContentLoaded', function() {
           window.toggleSolution = function() { return false; };
           if (typeof renderSlide === 'function') {
-            const originalRenderSlide = renderSlide;
+            var originalRenderSlide = renderSlide;
             window.renderSlide = function() {
               if (typeof revealedSlides !== 'undefined' && Array.isArray(revealedSlides)) {
                 revealedSlides.fill(false);
@@ -1901,7 +1996,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             window.renderSlide();
           }
         });
-      </script>
+      ${closeScr}
     `;
     const fullInjectedCode = TABLET_PRO_DRAWING_INJECTION + lockAnswerCode;
     if (rawHtml.includes('</body>')) {
@@ -2027,7 +2122,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     setSubmittedScore({ score: finalScore, correct: correctCount, total: questions.length });
   };
 
-  // Component chọn nhanh Up bên Trường hay bên Nhà cho Giáo viên
   const CategorySelectorPill = () => (
     <div className="flex items-center justify-between bg-slate-950/90 p-1.5 rounded-xl border border-slate-700 text-xs">
       <span className="text-slate-400 font-semibold pl-2">Đăng vào phân hệ:</span>
@@ -2054,9 +2148,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     </div>
   );
 
-  // ============================================================================
-  // MÀN HÌNH BẮT BUỘC ĐĂNG NHẬP (NẾU CHƯA ĐĂNG NHẬP HỌC SINH HOẶC GIÁO VIÊN)
-  // ============================================================================
   if (!isTeacher && !currentStudent) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-[#0b1120] via-[#111827] to-[#1e1b4b] flex items-center justify-center p-4 font-sans">
@@ -2069,7 +2160,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             <p className="text-xs text-slate-400">Đăng nhập để truy cập Bài giảng, Tài liệu & Bài tập theo lớp</p>
           </div>
 
-          {/* Chuyển chế độ Đăng nhập Học sinh / Giáo viên */}
           <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
             <button
               type="button"
@@ -2094,12 +2184,12 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           <form onSubmit={handleUnifiedLogin} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                {loginMode === 'student' ? 'Mã số Học sinh (3 chữ số, VD: 001):' : 'Email Giáo viên:'}
+                {loginMode === 'student' ? 'Số báo danh / Mã HS (VD: 0001):' : 'Email Giáo viên:'}
               </label>
               <input
                 type={loginMode === 'student' ? 'text' : 'email'}
                 required
-                placeholder={loginMode === 'student' ? 'Nhập mã học sinh (VD: 001)...' : 'Nhập email giáo viên...'}
+                placeholder={loginMode === 'student' ? 'Nhập mã học sinh (VD: 0001)...' : 'Nhập email giáo viên...'}
                 value={loginId}
                 onChange={(e) => setLoginId(e.target.value)}
                 className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:border-blue-500 outline-none"
@@ -2121,8 +2211,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             <button
               type="submit"
               className={`w-full py-3.5 rounded-xl font-extrabold text-sm shadow-lg transition ${
-                loginMode === 'student' 
-                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' 
+                loginMode === 'student'
+                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
                   : 'bg-[#2563eb] hover:bg-blue-600 text-white'
               }`}
             >
@@ -2162,8 +2252,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                     key={t.id}
                     onClick={() => setActiveTab(t.id)}
                     className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg font-bold text-xs transition ${
-                      activeTab === t.id 
-                        ? (t.id === 'converter' || t.id === 'students' ? 'bg-amber-500 text-slate-950 shadow' : 'bg-[#2563eb] text-white shadow') 
+                      activeTab === t.id
+                        ? (t.id === 'converter' || t.id === 'students' ? 'bg-amber-500 text-slate-950 shadow' : 'bg-[#2563eb] text-white shadow')
                         : 'text-slate-300 hover:bg-slate-700'
                     }`}
                   >
@@ -2175,11 +2265,9 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             </div>
           </div>
 
-          {/* KHU VỰC PHÂN HỆ TRƯỜNG / NHÀ & KHỐI LỚP */}
           <div className="flex items-center gap-2">
             {isTeacher ? (
               <>
-                {/* Công tắc chuyển chế độ xem & quản lý Trường / Nhà cho Giáo viên */}
                 <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-700">
                   <button
                     onClick={() => { setSelectedCategory('school'); setActiveExercise(null); }}
@@ -2199,7 +2287,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                   </button>
                 </div>
 
-                {/* Chọn Khối 10 - 11 - 12 */}
                 <div className="flex bg-slate-800/90 p-0.5 rounded-lg border border-slate-700">
                   {GRADES.map((g) => (
                     <button
@@ -2215,7 +2302,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 </div>
               </>
             ) : (
-              /* Nhãn cố định của Học sinh đang đăng nhập (Không thể tự ý đổi sang hệ khác) */
               <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1 rounded-xl border border-slate-700 text-xs">
                 <span className={`px-2 py-0.5 rounded font-extrabold ${
                   currentStudent.category === 'school' ? 'bg-sky-500 text-slate-950' : 'bg-amber-500 text-slate-950'
@@ -2229,7 +2315,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             )}
           </div>
 
-          {/* NÚT BẢNG DẠY FULL & ĐĂNG XUẤT */}
           <div className="flex items-center gap-1.5">
             {activeTab === 'lessons' && (
               <button
@@ -2281,7 +2366,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       </button>
                     </div>
 
-                    {/* Chọn up bên Trường hay bên Nhà */}
                     <CategorySelectorPill />
 
                     <input
@@ -2319,8 +2403,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       key={item.id}
                       onClick={() => setSelectedLesson(item)}
                       className={`p-2.5 rounded-xl border transition cursor-pointer ${
-                        selectedLesson?.id === item.id 
-                          ? 'bg-[#1e293b] border-blue-500 shadow-md' 
+                        selectedLesson?.id === item.id
+                          ? 'bg-[#1e293b] border-blue-500 shadow-md'
                           : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/80'
                       }`}
                     >
@@ -2361,7 +2445,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                               className="text-sky-400 hover:bg-sky-950 px-1.5 py-0.5 rounded font-bold"
                               title="Đổi tên bài học đồng bộ trên Google Drive"
                             >
-                              ✏️ Sửa tên
+                              ✏️ Sửa
                             </button>
                             <button
                               onClick={() => handleDeleteItemSyncDrive('lessons', item)}
@@ -2390,6 +2474,10 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       className="w-full flex-1 border-0"
                       sandbox="allow-scripts allow-same-origin allow-modals"
                     />
+                  ) : isLoadingDriveFile ? (
+                    <div className="flex-1 flex items-center justify-center text-amber-400 font-bold text-sm animate-pulse">
+                      ⏳ Đang tải bài giảng từ Google Drive...
+                    </div>
                   ) : (
                     <iframe
                       src={`https://drive.google.com/file/d/${selectedLesson.drive_file_id}/preview`}
@@ -2407,7 +2495,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           </div>
         )}
 
-        {/* ==================== TAB 2: TÀI LIỆU DRIVE (PHÂN BIỆT TRƯỜNG & NHÀ) ==================== */}
+        {/* ==================== TAB 2: TÀI LIỆU DRIVE ==================== */}
         {activeTab === 'documents' && (
           <div className="space-y-4 bg-slate-50 p-4 rounded-2xl min-h-[80vh]">
             {isTeacher && (
@@ -2510,7 +2598,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           </div>
         )}
 
-        {/* ==================== TAB 3: BÀI TẬP & KẾT QUẢ (TỰ GHI NHẬN TÊN HỌC SINH ĐĂNG NHẬP) ==================== */}
+        {/* ==================== TAB 3: BÀI TẬP & KẾT QUẢ ==================== */}
         {activeTab === 'exercises' && (
           <div className="space-y-4 bg-slate-50 p-4 rounded-2xl min-h-[80vh]">
             {!activeExercise ? (
@@ -2552,7 +2640,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       <div>
                         <h3 className="font-bold text-slate-800">{ex.title}</h3>
                         <p className="text-xs text-slate-500 mt-1">
-                          Số câu hỏi: {(ex.questions_json || []).length} câu • {ex.category === 'school' ? '🏫 Lớp Trường' : '🏠 Lớp Nhà'}
+                          {ex.category === 'school' ? '🏫 Lớp Trường' : '🏠 Lớp Nhà'} • Khối {ex.grade}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -2563,18 +2651,20 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                           {isTeacher ? 'Xem đề & Bảng điểm' : 'Vào làm bài'}
                         </button>
                         {isTeacher && (
-                          <button
-                            onClick={() => handleRenameItemSyncDrive('exercises', ex, '.json')}
-                            className="text-blue-600 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg text-xs font-bold"
-                          >
-                            ✏️ Đổi tên
-                          </button>
-                          <button
-                            onClick={() => handleDeleteItemSyncDrive('exercises', ex)}
-                            className="text-rose-500 hover:bg-rose-50 p-2 rounded-lg"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleRenameItemSyncDrive('exercises', ex, '.json')}
+                              className="text-blue-600 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg text-xs font-bold"
+                            >
+                              ✏️ Đổi tên
+                            </button>
+                            <button
+                              onClick={() => handleDeleteItemSyncDrive('exercises', ex)}
+                              className="text-rose-500 hover:bg-rose-50 p-2 rounded-lg"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -2674,7 +2764,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
         {/* ==================== TAB 5: CHUYỂN TỪ ẢNH & PDF ➔ SLIDE HTML ==================== */}
         {activeTab === 'converter' && isTeacher && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
-            <div 
+            <div
               onPaste={handleClipboardPaste}
               className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col space-y-2.5 text-white"
             >
@@ -2689,7 +2779,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 </div>
               </div>
 
-              {/* Chọn đăng vào Lớp Trường hay Lớp Nhà */}
               <CategorySelectorPill />
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-950/90 p-2.5 rounded-xl border border-slate-800">
@@ -2789,10 +2878,9 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           </div>
         )}
 
-       {/* ==================== TAB 6: QUẢN LÝ LỚP, TÀI KHOẢN & ĐIỂM KIỂM TRA HỌC SINH ==================== */}
+        {/* ==================== TAB 6: QUẢN LÝ LỚP, TÀI KHOẢN & ĐIỂM KIỂM TRA HỌC SINH ==================== */}
         {activeTab === 'students' && isTeacher && (
           <div className="space-y-4 bg-slate-50 p-4 rounded-2xl min-h-[82vh]">
-            {/* THANH QUẢN LÝ LỚP HỌC & CÔNG CỤ NHẬP DANH SÁCH HÀNG LOẠT */}
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-100 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mr-1">
@@ -2806,7 +2894,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  Tất cả lớp ({studentsList.filter(s => s.category === selectedCategory && s.grade === selectedGrade).length})
+                  Tất cả lớp ({studentsList.filter((s) => s.category === selectedCategory && s.grade === selectedGrade).length})
                 </button>
                 {availableClasses.map((clsName) => {
                   const countInClass = studentsList.filter(
@@ -2831,7 +2919,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 })}
               </div>
 
-              {/* Cụm nút Tải File Mẫu / Nhập từ Excel / Dán nhanh */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -2859,7 +2946,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              {/* Cột trái: Cấp lẻ từng tài khoản học sinh */}
               <form onSubmit={handleCreateStudentAccount} className="lg:col-span-3 bg-white p-4 rounded-2xl shadow-sm border space-y-3 h-fit">
                 <h3 className="font-extrabold text-indigo-800 text-sm border-b pb-2">
                   + Thêm Học Sinh Mới (K{selectedGrade})
@@ -2876,7 +2962,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       value={newStuCode}
                       onChange={(e) => setNewStuCode(e.target.value)}
                       className="w-full px-3 py-1.5 border rounded-xl text-sm font-extrabold text-indigo-700 bg-indigo-50/50"
-                      placeholder="VD: 001"
+                      placeholder="VD: 0001"
                     />
                   </div>
                   <div>
@@ -2936,7 +3022,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 </button>
               </form>
 
-              {/* Cột phải: Bảng danh sách học sinh sắp xếp theo SBD từ nhỏ đến lớn */}
               <div className="lg:col-span-9 bg-white p-4 rounded-2xl shadow-sm border space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
                   <div>
@@ -2944,7 +3029,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       Danh sách Học sinh & Điểm Kiểm Tra — {selectedClassFilter === 'ALL' ? 'Tất cả lớp' : `Lớp ${selectedClassFilter}`} ({selectedCategory === 'school' ? '🏫 Hệ Trường' : '🏠 Hệ Nhà'} • Khối {selectedGrade})
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Danh sách tự động sắp xếp theo Số báo danh (Mã HS) từ nhỏ đến lớn. Bấm vào <strong>Số báo danh</strong> hoặc nút <strong>✏️ Sửa</strong> để chỉnh sửa toàn bộ thông tin.
+                      Danh sách tự động sắp xếp theo Số báo danh từ nhỏ đến lớn. Bấm vào <strong>Số báo danh</strong> hoặc nút <strong>✏️ Sửa</strong> để chỉnh sửa toàn bộ thông tin.
                     </p>
                   </div>
                 </div>
@@ -2970,7 +3055,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                             s.grade === selectedGrade &&
                             (selectedClassFilter === 'ALL' || s.class_name?.trim() === selectedClassFilter)
                         )
-                        // SẮP XẾP SỐ BÁO DANH TỪ NHỎ ĐẾN LỚN (000 -> 001 -> 002 -> ...)
                         .sort((a, b) => {
                           const numA = parseInt(a.student_code, 10);
                           const numB = parseInt(b.student_code, 10);
@@ -2995,7 +3079,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                                     })
                                   }
                                   className="font-extrabold text-indigo-700 hover:text-blue-600 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200/80 transition"
-                                  title="Bấm để sửa Số báo danh & thông tin học sinh này"
                                 >
                                   {stu.student_code}
                                 </button>
@@ -3021,7 +3104,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                                       return (
                                         <span
                                           key={sc.id}
-                                          title={`${testTitle}: ${sc.score} điểm`}
                                           className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg text-[11px]"
                                         >
                                           <span className="text-slate-600 truncate max-w-[110px]">{testTitle}:</span>
@@ -3034,7 +3116,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                                     type="button"
                                     onClick={() => handleQuickAddScore(stu)}
                                     className="text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-2 py-0.5 rounded-md transition"
-                                    title="Nhập thêm điểm kiểm tra cho học sinh này"
                                   >
                                     + Điểm
                                   </button>
@@ -3047,7 +3128,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                                     type="button"
                                     onClick={() => handleResetStudentPassword(stu)}
                                     className="text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded transition"
-                                    title="Đặt lại mật khẩu nhanh"
                                   >
                                     🔄 Reset
                                   </button>
@@ -3065,7 +3145,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                                       })
                                     }
                                     className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold px-2.5 py-1 rounded-lg text-xs transition"
-                                    title="Chỉnh sửa toàn bộ thông tin học sinh"
                                   >
                                     ✏️ Sửa
                                   </button>
@@ -3078,7 +3157,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                                       }
                                     }}
                                     className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"
-                                    title="Xóa học sinh"
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </button>
@@ -3093,7 +3171,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
               </div>
             </div>
 
-            {/* MODAL CHỈNH SỬA TOÀN BỘ THÔNG TIN & SỐ BÁO DANH HỌC SINH */}
+            {/* MODAL CHỈNH SỬA HỌC SINH */}
             {editingStudent && (
               <div className="fixed inset-0 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <form
@@ -3102,110 +3180,74 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 >
                   <div className="flex items-center justify-between border-b pb-3">
                     <div>
-                      <h3 className="font-extrabold text-base text-indigo-800">
-                        ✏️ Chỉnh Sửa Thông Tin Học Sinh
-                      </h3>
-                      <p className="text-[11px] text-slate-500">
-                        Giáo viên có thể đổi tùy ý Số báo danh (Mã HS), Họ tên, Lớp, SĐT, Mật khẩu và Phân hệ.
-                      </p>
+                      <h3 className="font-extrabold text-base text-indigo-800">✏️ Chỉnh Sửa Thông Tin Học Sinh</h3>
+                      <p className="text-[11px] text-slate-500">Giáo viên có thể đổi tùy ý Số báo danh, Họ tên, Lớp, SĐT, Mật khẩu.</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setEditingStudent(null)}
-                      className="text-slate-400 hover:text-slate-700 font-bold text-lg px-1"
-                    >
-                      ✕
-                    </button>
+                    <button type="button" onClick={() => setEditingStudent(null)} className="text-slate-400 hover:text-slate-700 font-bold text-lg px-1">✕</button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs font-bold text-slate-700 block mb-1">
-                        Số báo danh (Mã HS):
-                      </label>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Số báo danh (Mã HS):</label>
                       <input
                         type="text"
                         required
                         value={editingStudent.student_code}
-                        onChange={(e) =>
-                          setEditingStudent({ ...editingStudent, student_code: e.target.value })
-                        }
-                        className="w-full px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm font-extrabold text-indigo-700 bg-indigo-50/40 focus:border-indigo-600 outline-none"
-                        placeholder="VD: 001 hoặc 0001"
+                        onChange={(e) => setEditingStudent({ ...editingStudent, student_code: e.target.value })}
+                        className="w-full px-3 py-2 border-2 border-indigo-300 rounded-xl text-sm font-extrabold text-indigo-700 bg-indigo-50/40"
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-bold text-slate-700 block mb-1">
-                        Mật khẩu đăng nhập:
-                      </label>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Mật khẩu:</label>
                       <input
                         type="text"
                         required
                         value={editingStudent.password}
-                        onChange={(e) =>
-                          setEditingStudent({ ...editingStudent, password: e.target.value })
-                        }
+                        onChange={(e) => setEditingStudent({ ...editingStudent, password: e.target.value })}
                         className="w-full px-3 py-2 border rounded-xl text-sm font-mono"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">
-                      Họ và tên học sinh:
-                    </label>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Họ và tên học sinh:</label>
                     <input
                       type="text"
                       required
                       value={editingStudent.full_name}
-                      onChange={(e) =>
-                        setEditingStudent({ ...editingStudent, full_name: e.target.value })
-                      }
+                      onChange={(e) => setEditingStudent({ ...editingStudent, full_name: e.target.value })}
                       className="w-full px-3 py-2 border rounded-xl text-sm font-semibold"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs font-bold text-slate-700 block mb-1">
-                        Tên Lớp:
-                      </label>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Tên Lớp:</label>
                       <input
                         type="text"
                         required
                         value={editingStudent.class_name}
-                        onChange={(e) =>
-                          setEditingStudent({ ...editingStudent, class_name: e.target.value })
-                        }
+                        onChange={(e) => setEditingStudent({ ...editingStudent, class_name: e.target.value })}
                         className="w-full px-3 py-2 border rounded-xl text-sm font-semibold"
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-bold text-slate-700 block mb-1">
-                        Số điện thoại:
-                      </label>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Số điện thoại:</label>
                       <input
                         type="text"
                         value={editingStudent.phone || ''}
-                        onChange={(e) =>
-                          setEditingStudent({ ...editingStudent, phone: e.target.value })
-                        }
+                        onChange={(e) => setEditingStudent({ ...editingStudent, phone: e.target.value })}
                         className="w-full px-3 py-2 border rounded-xl text-sm"
-                        placeholder="09xx..."
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 pt-1">
                     <div>
-                      <label className="text-xs font-bold text-slate-700 block mb-1">
-                        Phân hệ (Trường / Nhà):
-                      </label>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Phân hệ:</label>
                       <select
                         value={editingStudent.category}
-                        onChange={(e) =>
-                          setEditingStudent({ ...editingStudent, category: e.target.value })
-                        }
+                        onChange={(e) => setEditingStudent({ ...editingStudent, category: e.target.value })}
                         className="w-full px-3 py-2 border rounded-xl text-xs font-bold bg-slate-50"
                       >
                         <option value="school">🏫 Lớp Trường</option>
@@ -3213,14 +3255,10 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs font-bold text-slate-700 block mb-1">
-                        Khối lớp:
-                      </label>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Khối lớp:</label>
                       <select
                         value={editingStudent.grade}
-                        onChange={(e) =>
-                          setEditingStudent({ ...editingStudent, grade: Number(e.target.value) })
-                        }
+                        onChange={(e) => setEditingStudent({ ...editingStudent, grade: Number(e.target.value) })}
                         className="w-full px-3 py-2 border rounded-xl text-xs font-bold bg-slate-50"
                       >
                         <option value={10}>Khối 10</option>
@@ -3231,36 +3269,21 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                   </div>
 
                   <div className="flex justify-end gap-2 pt-3 border-t">
-                    <button
-                      type="button"
-                      onClick={() => setEditingStudent(null)}
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2 rounded-xl text-xs sm:text-sm font-extrabold bg-[#2563eb] hover:bg-blue-700 text-white shadow-md"
-                    >
-                      💾 Lưu Thay Đổi
-                    </button>
+                    <button type="button" onClick={() => setEditingStudent(null)} className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600">Hủy</button>
+                    <button type="submit" className="px-5 py-2 rounded-xl text-xs sm:text-sm font-extrabold bg-[#2563eb] hover:bg-blue-700 text-white shadow-md">💾 Lưu Thay Đổi</button>
                   </div>
                 </form>
               </div>
             )}
 
-            {/* MODAL DÁN NHANH / KIỂM TRA DANH SÁCH TRƯỚC KHI NHẬP HÀNG LOẠT */}
+            {/* MODAL NHẬP HÀNG LOẠT */}
             {showBulkModal && (
               <div className="fixed inset-0 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <div className="bg-white rounded-2xl p-5 w-full max-w-2xl space-y-4 shadow-2xl">
                   <div className="flex items-center justify-between border-b pb-2.5">
                     <div>
-                      <h3 className="font-extrabold text-base text-indigo-800">
-                        📥 Nhập Danh Sách Học Sinh Hàng Loạt (Khối {selectedGrade})
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        Hệ thống tự động cấp Số báo danh theo thứ tự tăng dần. Bạn có thể sửa lại bất kỳ lúc nào.
-                      </p>
+                      <h3 className="font-extrabold text-base text-indigo-800">📥 Nhập Danh Sách Học Sinh Hàng Loạt (Khối {selectedGrade})</h3>
+                      <p className="text-xs text-slate-500">Hệ thống tự động cấp Số báo danh theo thứ tự tăng dần.</p>
                     </div>
                     <button onClick={() => setShowBulkModal(false)} className="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
                   </div>
@@ -3279,33 +3302,17 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-600 bg-amber-50 border border-amber-200 p-2.5 rounded-xl">
-                    💡 <strong>Cú pháp mỗi dòng 1 học sinh:</strong> <code>Số báo danh | Họ và tên | Lớp | SĐT | Mật khẩu</code> (Hoặc chỉ cần gõ <code>Họ và tên</code> trên mỗi dòng).
-                  </div>
-
                   <textarea
                     rows={10}
                     value={bulkImportText}
                     onChange={(e) => setBulkImportText(e.target.value)}
-                    placeholder={`001 | Nguyễn Văn An | 12a | 0912345678 | 123456\n002 | Trần Thị Bình | 12a`}
+                    placeholder={`0001 | Nguyễn Văn An | 12a | 0912345678 | 123456\n0002 | Trần Thị Bình | 12a`}
                     className="w-full p-3 border rounded-xl text-xs sm:text-sm font-mono"
                   />
 
                   <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowBulkModal(false)}
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
-                    >
-                      Hủy
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleConfirmBulkImport}
-                      className="px-5 py-2 rounded-xl text-xs sm:text-sm font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow"
-                    >
-                      ✓ Xác nhận Tạo Hàng Loạt
-                    </button>
+                    <button type="button" onClick={() => setShowBulkModal(false)} className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600">Hủy</button>
+                    <button type="button" onClick={handleConfirmBulkImport} className="px-5 py-2 rounded-xl text-xs sm:text-sm font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow">✓ Xác nhận Tạo Hàng Loạt</button>
                   </div>
                 </div>
               </div>
@@ -3335,28 +3342,24 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                   value={teacherInfo.teacher_name || ''}
                   onChange={(e) => setTeacherInfo({ ...teacherInfo, teacher_name: e.target.value })}
                   className="w-full px-3 py-2 border rounded-xl text-sm"
-                  placeholder="Tên lớp / Giáo viên"
                 />
                 <input
                   type="text"
                   value={teacherInfo.phone || ''}
                   onChange={(e) => setTeacherInfo({ ...teacherInfo, phone: e.target.value })}
                   className="w-full px-3 py-2 border rounded-xl text-sm"
-                  placeholder="Số điện thoại"
                 />
                 <textarea
                   rows={3}
                   value={teacherInfo.announcement || ''}
                   onChange={(e) => setTeacherInfo({ ...teacherInfo, announcement: e.target.value })}
                   className="w-full p-3 border rounded-xl text-sm"
-                  placeholder="Thông báo tới học sinh..."
                 />
                 <textarea
                   rows={3}
                   value={teacherInfo.schedule_note || ''}
                   onChange={(e) => setTeacherInfo({ ...teacherInfo, schedule_note: e.target.value })}
                   className="w-full p-3 border rounded-xl text-sm"
-                  placeholder="Lịch học các khối..."
                 />
                 <button
                   onClick={async () => {
@@ -3373,15 +3376,14 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
         )}
       </main>
 
-      {/* THANH NAVIGATION DƯỚI ĐÁY MÀN HÌNH DÀNH CHO ĐIỆN THOẠI / TABLET */}
-      {/* MODAL ĐỔI MẬT KHẨU DÀNH CHO HỌC SINH & GIÁO VIÊN */}
+      {/* MODAL ĐỔI MẬT KHẨU */}
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <form onSubmit={handleChangePassword} className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b pb-2.5">
               <h3 className="font-extrabold text-base text-slate-800 flex items-center gap-1.5">
                 <Key className="w-4 h-4 text-amber-500" />
-                <span>{isTeacher ? 'Đổi Mật Khẩu Giáo Viên' : `Đổi Mật Khẩu Học Sinh (${currentStudent?.student_code})`}</span>
+                <span>{isTeacher ? 'Đổi Mật Khẩu Giáo Viên' : `Đổi Mật Khẩu (${currentStudent?.student_code})`}</span>
               </h3>
               <button type="button" onClick={() => setShowPasswordModal(false)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
             </div>
@@ -3425,24 +3427,14 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowPasswordModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
-              >
-                Hủy
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 rounded-xl text-xs font-extrabold bg-[#2563eb] hover:bg-blue-700 text-white shadow"
-              >
-                Lưu Mật Khẩu Mới
-              </button>
+              <button type="button" onClick={() => setShowPasswordModal(false)} className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600">Hủy</button>
+              <button type="submit" className="px-5 py-2 rounded-xl text-xs font-extrabold bg-[#2563eb] hover:bg-blue-700 text-white shadow">Lưu Mật Khẩu Mới</button>
             </div>
           </form>
         </div>
       )}
-      
+
+      {/* THANH NAVIGATION MOBILE */}
       <nav className="xl:hidden fixed bottom-0 left-0 right-0 bg-[#111827] border-t border-slate-800 flex justify-around py-2 z-30 shadow-lg">
         {navTabs.map((t) => {
           const Icon = t.icon;
