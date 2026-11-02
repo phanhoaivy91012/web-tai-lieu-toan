@@ -842,6 +842,8 @@ export default function App() {
   const [newTitle, setNewTitle] = useState('');
   const [driveInput, setDriveInput] = useState('');
   const [htmlContentInput, setHtmlContentInput] = useState('');
+  const [docFileData, setDocFileData] = useState(null); // Lưu file PDF/Word chọn từ máy
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false); // Trạng thái đang tải lên Drive
   const [uploadCategory, setUploadCategory] = useState('home'); // Chọn up bên Trường hay Nhà
 
   // Form Quản lý Học sinh (Tự động cấp mã 3 số 001 -> 999)
@@ -1934,25 +1936,73 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     return rawHtml + fullInjectedCode;
   };
 
-  const addDocument = async () => {
-    if (!newTitle || !driveInput) return alert('Nhập tên tài liệu và Link Google Drive!');
-    const fileId = extractDriveId(driveInput);
-    const { error } = await supabase.from('documents').insert([{
-      title: newTitle,
-      grade: selectedGrade,
-      category: uploadCategory,
-      drive_file_id: fileId,
-      is_active: true,
-      show_answers: false
-    }]);
-    if (!error) {
-      setNewTitle('');
-      setDriveInput('');
-      setSelectedCategory(uploadCategory);
-      fetchData();
+  // Chọn file PDF / Word / Tài liệu trực tiếp từ máy tính
+  const handleFileUploadDocument = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!newTitle) {
+      setNewTitle(file.name.replace(/\.[a-zA-Z0-9]+$/, ''));
     }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const resultStr = String(ev.target.result || '');
+      const base64Content = resultStr.includes(',') ? resultStr.split(',')[1] : resultStr;
+      setDocFileData({
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        base64: base64Content
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
+  const addDocument = async () => {
+    if (!newTitle.trim()) return alert('Vui lòng nhập tên tài liệu!');
+    if (!docFileData && !driveInput.trim()) {
+      return alert('Vui lòng chọn file PDF/Word từ máy tính HOẶC dán Link Google Drive!');
+    }
+
+    setIsUploadingDoc(true);
+    try {
+      let fileId = extractDriveId(driveInput);
+
+      // Nếu Giáo viên chọn file trực tiếp từ máy tính -> Đẩy thẳng lên Google Drive (isBase64 = true)
+      if (docFileData) {
+        const extMatch = docFileData.fileName.match(/\.[a-zA-Z0-9]+$/);
+        const ext = extMatch ? extMatch[0] : '';
+        const driveFileName = `[K${selectedGrade}-${uploadCategory.toUpperCase()}] ${newTitle.trim()}${ext}`;
+
+        fileId = await uploadToGoogleDrive(
+          driveFileName,
+          docFileData.base64,
+          docFileData.mimeType,
+          true
+        );
+      }
+
+      const { error } = await supabase.from('documents').insert([{
+        title: newTitle.trim(),
+        grade: selectedGrade,
+        category: uploadCategory,
+        drive_file_id: fileId,
+        is_active: true,
+        show_answers: false
+      }]);
+
+      if (error) throw error;
+
+      setNewTitle('');
+      setDriveInput('');
+      setDocFileData(null);
+      setSelectedCategory(uploadCategory);
+      fetchData();
+      alert('✅ Đã tải tài liệu lên Google Drive và đăng vào lớp thành công!');
+    } catch (err) {
+      alert('Lỗi tải tài liệu lên Google Drive: ' + err.message);
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
   const toggleDocStatus = async (doc, field) => {
     await supabase.from('documents').update({ [field]: !doc[field] }).eq('id', doc.id);
     fetchData();
@@ -2431,47 +2481,78 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           </div>
         )}
 
-        {/* ==================== TAB 2: TÀI LIỆU DRIVE (PHÂN BIỆT TRƯỜNG & NHÀ) ==================== */}
+       {/* ==================== TAB 2: TÀI LIỆU DRIVE (CHỌN FILE TỪ MÁY ĐẨY LÊN DRIVE + TẢI VỀ) ==================== */}
         {activeTab === 'documents' && (
           <div className="space-y-4 bg-slate-50 p-4 rounded-2xl min-h-[80vh]">
             {isTeacher && (
               <div className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-100 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-bold text-indigo-800 text-sm">
-                    + Thêm Tài Liệu PDF / Word (Khối {selectedGrade})
+                    + Thêm Tài Liệu PDF / Word ({selectedGrade === 0 ? 'Lớp Khác' : `Khối ${selectedGrade}`})
                   </h3>
                   <div className="w-full sm:w-80">
                     <CategorySelectorPill />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <input
-                    type="text"
-                    placeholder="Tên tài liệu (VD: Đề cương Giữa kì 1)"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className="px-3 py-2 border rounded-xl text-sm"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Dán Link Google Drive (PDF/Word)..."
-                    value={driveInput}
-                    onChange={(e) => setDriveInput(e.target.value)}
-                    className="px-3 py-2 border rounded-xl text-sm"
-                  />
-                  <button
-                    onClick={addDocument}
-                    className="bg-[#2563eb] hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-xl text-sm shadow"
-                  >
-                    Đăng Tài Liệu ({uploadCategory === 'school' ? '🏫 Trường' : '🏠 Nhà'})
-                  </button>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                  {/* Ô 1: Tên tài liệu */}
+                  <div className="md:col-span-4">
+                    <input
+                      type="text"
+                      placeholder="Tên tài liệu (VD: Đề cương Giữa kì 1)"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-xl text-sm font-medium"
+                    />
+                  </div>
+
+                  {/* Ô 2: Chọn trực tiếp file PDF / Word từ máy tính */}
+                  <div className="md:col-span-3">
+                    <label className="flex items-center justify-center gap-1.5 w-full py-2 px-3 border-2 border-dashed border-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-800 rounded-xl text-xs sm:text-sm font-bold cursor-pointer transition">
+                      <FileUp className="w-4 h-4 shrink-0 text-emerald-600" />
+                      <span className="truncate">
+                        {docFileData ? `✓ ${docFileData.fileName}` : '📂 Chọn PDF / Word từ máy'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,image/*"
+                        onChange={handleFileUploadDocument}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Ô 3: Hoặc dán Link Google Drive (tùy chọn) */}
+                  <div className="md:col-span-3">
+                    <input
+                      type="text"
+                      placeholder="Hoặc dán Link Drive có sẵn..."
+                      value={driveInput}
+                      onChange={(e) => setDriveInput(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-xl text-xs sm:text-sm"
+                    />
+                  </div>
+
+                  {/* Ô 4: Nút Lưu & Đẩy lên Drive */}
+                  <div className="md:col-span-2">
+                    <button
+                      onClick={addDocument}
+                      disabled={isUploadingDoc}
+                      className="w-full bg-[#2563eb] hover:bg-blue-700 disabled:bg-slate-400 text-white font-bold py-2 px-3 rounded-xl text-xs sm:text-sm shadow transition"
+                    >
+                      {isUploadingDoc
+                        ? '⏳ Đang tải lên...'
+                        : `Đăng (${uploadCategory === 'school' ? '🏫 Trường' : '🏠 Nhà'})`}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
             <div className="flex items-center justify-between">
               <h2 className="font-extrabold text-slate-700 text-sm uppercase">
-                Danh sách Tài liệu {effectiveCategory === 'school' ? '🏫 LỚP TRƯỜNG' : '🏠 LỚP NHÀ'} — Khối {effectiveGrade}
+                Danh sách Tài liệu {effectiveCategory === 'school' ? '🏫 LỚP TRƯỜNG' : '🏠 LỚP NHÀ'} — {effectiveGrade === 0 ? '📂 Lớp Khác' : `Khối ${effectiveGrade}`} ({documents.length})
               </h2>
             </div>
 
@@ -2480,24 +2561,35 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 <p className="text-sm text-slate-400 col-span-3 py-8 text-center">Chưa có tài liệu nào trong mục này.</p>
               )}
               {documents.map((doc) => (
-                <div key={doc.id} className="bg-white p-4 rounded-2xl shadow-sm border flex flex-col justify-between space-y-3">
+                <div key={doc.id} className="bg-white p-4 rounded-2xl shadow-sm border flex flex-col justify-between space-y-3 hover:shadow-md transition">
                   <div>
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-bold text-slate-800">{doc.title}</h3>
+                      <h3 className="font-bold text-slate-800 text-sm sm:text-base">{doc.title}</h3>
                       <span className={`text-[11px] px-2 py-0.5 rounded font-bold shrink-0 ${
                         doc.category === 'school' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'
                       }`}>
-                        {doc.category === 'school' ? '🏫 Trường' : '🏠 Nhà'} • K{doc.grade}
+                        {doc.category === 'school' ? '🏫 Trường' : '🏠 Nhà'} • {doc.grade === 0 ? 'Khác' : `K${doc.grade}`}
                       </span>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
+
+                    {/* Cụm 2 nút: Mở xem trực tuyến & Tải về máy */}
+                    <div className="mt-3.5 flex flex-wrap items-center gap-2">
                       <a
                         href={`https://drive.google.com/file/d/${doc.drive_file_id}/view`}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 text-xs font-semibold bg-[#2563eb] text-white px-3 py-2 rounded-xl hover:bg-blue-700"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold bg-[#2563eb] text-white px-3.5 py-2 rounded-xl hover:bg-blue-700 shadow-sm transition"
                       >
-                        <ExternalLink className="w-3.5 h-3.5" /> Mở xem Tài liệu
+                        <ExternalLink className="w-3.5 h-3.5" /> Mở xem
+                      </a>
+
+                      <a
+                        href={`https://drive.google.com/uc?export=download&id=${doc.drive_file_id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold bg-emerald-600 text-white px-3.5 py-2 rounded-xl hover:bg-emerald-700 shadow-sm transition"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Tải về máy
                       </a>
                     </div>
                   </div>
@@ -2506,23 +2598,29 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                     <div className="flex items-center justify-between pt-3 border-t text-xs">
                       <button
                         onClick={() => toggleDocStatus(doc, 'is_active')}
-                        className={`px-2.5 py-1 rounded-lg font-medium ${
+                        className={`px-2.5 py-1 rounded-lg font-bold ${
                           doc.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
                         }`}
                       >
-                        {doc.is_active ? 'Hiển thị: BẬT' : 'Hiển thị: TẮT'}
+                        {doc.is_active ? '👁️ Đang hiện' : '🙈 Đang ẩn'}
                       </button>
-                      <button
-                        onClick={async () => {
-                          if (window.confirm('Xóa tài liệu này?')) {
-                            await supabase.from('documents').delete().eq('id', doc.id);
-                            fetchData();
-                          }
-                        }}
-                        className="text-rose-500 hover:bg-rose-50 p-1 rounded"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleRenameItemSyncDrive('documents', doc, '')}
+                          className="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg font-bold"
+                          title="Đổi tên đồng bộ trên cả Web và Google Drive"
+                        >
+                          ✏️ Sửa tên
+                        </button>
+                        <button
+                          onClick={() => handleDeleteItemSyncDrive('documents', doc)}
+                          className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"
+                          title="Xóa trên Web và xóa luôn trên Google Drive"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
