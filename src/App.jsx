@@ -807,6 +807,367 @@ function buildFullStandaloneHTML(lessonTitle, grade, slidesArray) {
 </html>`;
 }
 
+// ============================================================================
+// 3B. ENGINE AZOTA & LATEX EX_TEST: DỰNG BẢNG BIẾN THIÊN, ĐỒ THỊ TIKZ & CHẤM ĐIỂM
+// ============================================================================
+
+// 1. Chuyển mã Bảng biến thiên LaTeX (\tkzTabInit / \tkzTabVar) sang Bảng HTML sắc nét
+function convertTkzTabToHtml(tikzCode) {
+  try {
+    const initMatch = tikzCode.match(/\\tkzTabInit(?:\[[^\]]*\])?\s*\{([\s\S]*?)\}\s*\{([\s\S]*?)\}/);
+    const lineMatch = tikzCode.match(/\\tkzTabLine\s*\{([\s\S]*?)\}/);
+    const varMatch = tikzCode.match(/\\tkzTabVar\s*\{([\s\S]*?)\}/);
+
+    if (!initMatch) return '';
+
+    const rowHeaders = initMatch[1]
+      .split(',')
+      .map((s) => s.split('/')[0].replace(/^\s*|\s*$/g, ''))
+      .filter(Boolean);
+
+    const xValues = initMatch[2]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const fPrimeTokens = lineMatch
+      ? lineMatch[1].split(',').map((s) => s.trim())
+      : [];
+
+    // Lấy các mốc giới hạn/cực trị trong \tkzTabVar{+/..., -/..., +/...}
+    const varTokens = varMatch
+      ? varMatch[1].split(',').map((s) => s.trim())
+      : [];
+
+    let html = `<div class="my-3 overflow-x-auto"><table class="w-full max-w-xl mx-auto border-2 border-slate-800 bg-white text-slate-900 text-sm sm:text-base border-collapse shadow-sm">`;
+
+    // Dòng 1: x
+    html += `<tr class="border-b-2 border-slate-800">`;
+    html += `<td class="border-r-2 border-slate-800 px-4 py-2 font-bold text-center bg-slate-50 w-24">${rowHeaders[0] || '$x$'}</td>`;
+    xValues.forEach((xv) => {
+      html += `<td class="px-3 py-2 text-center font-semibold">${xv}</td>`;
+    });
+    html += `</tr>`;
+
+    // Dòng 2: y' (Xét dấu)
+    if (fPrimeTokens.length > 0 || rowHeaders.length >= 2) {
+      const signCells = [];
+      for (let i = 0; i < xValues.length; i++) {
+        const signBefore = fPrimeTokens[2 * i - 1] || '';
+        const atPoint = fPrimeTokens[2 * i] || '';
+        if (i > 0) {
+          const cleanSign = signBefore === '+' || signBefore === '-' ? `$${signBefore}$` : signBefore;
+          signCells.push(`<td class="px-2 py-2 text-center font-bold text-blue-700">${cleanSign}</td>`);
+        }
+        let pointDisplay = '';
+        if (atPoint === 'z' || atPoint === '0') pointDisplay = '$0$';
+        else if (atPoint === 'd') pointDisplay = '<span class="font-extrabold text-rose-600">||</span>';
+        else if (atPoint === 'h') pointDisplay = '';
+        else pointDisplay = atPoint;
+        signCells.push(`<td class="px-2 py-2 text-center font-bold">${pointDisplay}</td>`);
+      }
+
+      html += `<tr class="border-b-2 border-slate-800">`;
+      html += `<td class="border-r-2 border-slate-800 px-4 py-2 font-bold text-center bg-slate-50">${rowHeaders[1] || "$y'$"}</td>`;
+      html += `<td colspan="${xValues.length}" class="p-0"><div class="grid" style="grid-template-columns: repeat(${xValues.length}, 1fr);">`;
+      xValues.forEach((_, idx) => {
+        const signRight = fPrimeTokens[2 * idx + 1] || '';
+        const atVal = fPrimeTokens[2 * idx] || '';
+        let centerSym = atVal === 'z' ? '$0$' : atVal === 'd' ? '<b class="text-rose-600">||</b>' : '';
+        let rightSym = signRight === '+' || signRight === '-' ? `$${signRight}$` : '';
+        html += `<div class="flex items-center justify-between px-3 py-2">
+          <span class="mx-auto font-bold">${centerSym}</span>
+          ${idx < xValues.length - 1 ? `<span class="font-extrabold text-indigo-700">${rightSym}</span>` : ''}
+        </div>`;
+      });
+      html += `</div></td></tr>`;
+    }
+
+    // Dòng 3: Chiều biến thiên y / f(x)
+    if (varTokens.length > 0) {
+      html += `<tr>`;
+      html += `<td class="border-r-2 border-slate-800 px-4 py-6 font-bold text-center bg-slate-50 align-middle">${rowHeaders[rowHeaders.length - 1] || '$y$'}</td>`;
+      varTokens.forEach((tok, idx) => {
+        const isHigh = tok.startsWith('+');
+        const isDouble = tok.includes('D') || tok.includes('H');
+        const valText = tok.replace(/^[\+\-DCH]+\//, '').trim();
+        const nextTok = varTokens[idx + 1] || '';
+        const nextIsHigh = nextTok.startsWith('+');
+        const arrow = idx < varTokens.length - 1
+          ? (isHigh && !nextIsHigh ? '↘' : (!isHigh && nextIsHigh ? '↗' : '→'))
+          : '';
+
+        html += `<td class="px-2 py-3 text-center relative h-24 align-top">
+          <div class="flex flex-col justify-between h-full items-center">
+            <div class="${isHigh ? 'font-bold text-emerald-700' : 'opacity-0'}">${isHigh ? (valText || ' ') : '.'}</div>
+            <div class="text-xl font-extrabold text-blue-600 my-0.5">${isDouble ? '||' : arrow}</div>
+            <div class="${!isHigh ? 'font-bold text-rose-700' : 'opacity-0'}">${!isHigh ? (valText || ' ') : '.'}</div>
+          </div>
+        </td>`;
+      });
+      html += `</tr>`;
+    }
+
+    html += `</table></div>`;
+    return html;
+  } catch (e) {
+    return '';
+  }
+}
+
+// 2. Tự động vẽ Đồ thị hàm số SVG nếu trong TikZ có hàm plot(...)
+function convertTikzPlotToSvg(tikzCode) {
+  const plotMatch = tikzCode.match(/plot\s*\[[^\]]*\]\s*\(\\x\s*,\s*\{([^\}]+)\}\)/i);
+  if (!plotMatch) return '';
+
+  const exprRaw = plotMatch[1]
+    .replace(/\\x/g, 'x')
+    .replace(/\^/g, '**')
+    .replace(/sin\(/g, 'Math.sin(')
+    .replace(/cos\(/g, 'Math.cos(');
+
+  const pts = [];
+  for (let x = -3.8; x <= 3.8; x += 0.1) {
+    try {
+      // eslint-disable-next-line no-new-func
+      const y = new Function('x', `return ${exprRaw};`)(x);
+      if (typeof y === 'number' && !isNaN(y) && Math.abs(y) <= 6) {
+        const sx = 160 + x * 32;
+        const sy = 120 - y * 24;
+        pts.push(`${sx.toFixed(1)},${sy.toFixed(1)}`);
+      }
+    } catch (e) {}
+  }
+  if (pts.length < 3) return '';
+
+  return `<svg viewBox="0 0 320 240" class="w-full max-w-[300px] h-auto mx-auto my-2 bg-white border rounded-xl p-2 shadow-sm" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 10 5 L 0 9 z" fill="#0f172a" />
+      </marker>
+    </defs>
+    <line x1="15" y1="120" x2="305" y2="120" stroke="#0f172a" stroke-width="1.5" marker-end="url(#arrow)" />
+    <line x1="160" y1="225" x2="160" y2="15" stroke="#0f172a" stroke-width="1.5" marker-end="url(#arrow)" />
+    <text x="295" y="136" font-size="12" font-weight="bold" font-style="italic">x</text>
+    <text x="168" y="24" font-size="12" font-weight="bold" font-style="italic">y</text>
+    <text x="146" y="135" font-size="11" font-weight="bold">O</text>
+    <polyline fill="none" stroke="#2563eb" stroke-width="2.4" points="${pts.join(' ')}" />
+  </svg>`;
+}
+
+// 3. Làm sạch & chuyển đổi môi trường LaTeX sang HTML + KaTeX
+function cleanLatexToHtmlMath(str) {
+  if (!str) return '';
+  let s = str;
+
+  // Chuyển tikzpicture có \tkzTab thành bảng biến thiên HTML, hoặc plot thành đồ thị SVG
+  s = s.replace(/\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}/g, (match) => {
+    if (match.includes('\\tkzTab')) {
+      return convertTkzTabToHtml(match) || `<div class="p-2 bg-amber-50 border rounded text-xs font-mono">[Bảng biến thiên]</div>`;
+    }
+    const svgPlot = convertTikzPlotToSvg(match);
+    if (svgPlot) return svgPlot;
+    return '';
+  });
+
+  return s
+    .replace(/\\vec\{([^\}]+)\}/g, '\\overrightarrow{$1}')
+    .replace(/\\textbf\{([^\}]+)\}/g, '<strong>$1</strong>')
+    .replace(/\\textit\{([^\}]+)\}/g, '<em>$1</em>')
+    .replace(/\\underline\{([^\}]+)\}/g, '<u>$1</u>')
+    .replace(/\\begin\{center\}/g, '<div class="text-center my-1">')
+    .replace(/\\end\{center\}/g, '</div>')
+    .replace(/\\begin\{enumerate\}/g, '<div class="space-y-1 my-1">')
+    .replace(/\\end\{enumerate\}/g, '</div>')
+    .replace(/\\begin\{itemize\}/g, '<div class="space-y-1 my-1">')
+    .replace(/\\end\{itemize\}/g, '</div>')
+    .replace(/\\item\b/g, '<br>• ')
+    .replace(/\\\\/g, '<br>')
+    .trim();
+}
+
+// 4. Hàm tách các cặp ngoặc nhọn {...} cấp 1 trong LaTeX (Dùng cho \choice và \choiceTF)
+function extractLatexBraceArgs(str) {
+  const results = [];
+  let i = 0;
+  while (i < str.length) {
+    if (str[i] === '{') {
+      let depth = 1;
+      let start = i + 1;
+      i++;
+      while (i < str.length && depth > 0) {
+        if (str[i] === '{' && str[i - 1] !== '\\') depth++;
+        else if (str[i] === '}' && str[i - 1] !== '\\') depth--;
+        i++;
+      }
+      results.push(str.slice(start, i - 1).trim());
+    } else {
+      i++;
+    }
+  }
+  return results;
+}
+
+// 5. BỘ PHÂN TÍCH ĐỀ TOÁN TỔNG HỢP: HỖ TRỢ CẢ FILE .TEX (ex_test) VÀ FILE WORD AZOTA
+function parseAzotaOrTexToQuestions(rawInput) {
+  if (!rawInput || !rawInput.trim()) return [];
+  const text = rawInput.replace(/\r\n/g, '\n');
+
+  // NHÁNH A: NẾU LÀ FILE LATEX (.TEX) CHUẨN GÓI EX_TEST (\begin{ex} ... \end{ex})
+  if (/\\begin\{ex\}/i.test(text)) {
+    const questions = [];
+    const exRegex = /\\begin\{ex\}([\s\S]*?)\\end\{ex\}/gi;
+    let match;
+    let qIdx = 1;
+
+    while ((match = exRegex.exec(text)) !== null) {
+      let block = match[1].trim();
+      // Bóc tách lời giải \loigiai{...}
+      let solution = '';
+      const lgPos = block.indexOf('\\loigiai');
+      if (lgPos !== -1) {
+        const afterLg = block.slice(lgPos + 8);
+        const lgArgs = extractLatexBraceArgs(afterLg);
+        if (lgArgs.length > 0) solution = cleanLatexToHtmlMath(lgArgs[0]);
+        block = block.slice(0, lgPos).trim();
+      }
+
+      // Kiểm tra nếu có \immini{Đề}{Hình}
+      const imminiPos = block.indexOf('\\immini');
+      let extraFigure = '';
+      if (imminiPos !== -1) {
+        const afterIm = block.slice(imminiPos + 7).replace(/^\s*\[[^\]]*\]/, '');
+        const imArgs = extractLatexBraceArgs(afterIm);
+        if (imArgs.length >= 2) {
+          extraFigure = cleanLatexToHtmlMath(imArgs[1]);
+          block = block.slice(0, imminiPos) + '\n' + imArgs[0] + '\n' + extraFigure;
+        }
+      }
+
+      // Dạng 1: Đúng / Sai (\choiceTF)
+      if (/\\choiceTF/i.test(block)) {
+        const parts = block.split(/\\choiceTF[t]?\b/i);
+        const qPrompt = cleanLatexToHtmlMath(parts[0]);
+        const rawStmts = extractLatexBraceArgs(parts[1] || '').slice(0, 4);
+        const statements = rawStmts.map((st, idx) => {
+          const isTrue = /\\True\b/i.test(st);
+          const cleanSt = cleanLatexToHtmlMath(st.replace(/\\True\b/gi, '').trim());
+          return {
+            label: `${['a', 'b', 'c', 'd'][idx]})`,
+            text: cleanSt,
+            isTrue
+          };
+        });
+        questions.push({
+          id: qIdx++,
+          type: 'tf',
+          question: qPrompt,
+          statements,
+          solution
+        });
+      }
+      // Dạng 2: Trả lời ngắn (\shortans{...})
+      else if (/\\shortans/i.test(block)) {
+        const parts = block.split(/\\shortans(?:\[[^\]]*\])?/i);
+        const qPrompt = cleanLatexToHtmlMath(parts[0]);
+        const ansArgs = extractLatexBraceArgs(parts[1] || '');
+        const shortAnswer = (ansArgs[0] || '').replace(/\$/g, '').trim();
+        questions.push({
+          id: qIdx++,
+          type: 'short',
+          question: qPrompt,
+          shortAnswer,
+          solution
+        });
+      }
+      // Dạng 3: Trắc nghiệm 4 lựa chọn (\choice / \motcot / \haicot)
+      else if (/\\(choice|motcot|haicot|boncot)/i.test(block)) {
+        const parts = block.split(/\\(?:choice|motcot|haicot|boncot)(?:\[[^\]]*\])?/i);
+        const qPrompt = cleanLatexToHtmlMath(parts[0]);
+        const rawOpts = extractLatexBraceArgs(parts[1] || '').slice(0, 4);
+        let correctIndex = 0;
+        const options = rawOpts.map((opt, idx) => {
+          if (/\\True\b/i.test(opt)) correctIndex = idx;
+          return cleanLatexToHtmlMath(opt.replace(/\\True\b/gi, '').trim());
+        });
+        while (options.length < 4) options.push('');
+        questions.push({
+          id: qIdx++,
+          type: 'mcq',
+          question: qPrompt,
+          options,
+          correct: correctIndex,
+          solution
+        });
+      }
+    }
+    return questions;
+  }
+
+  // NHÁNH B: ĐỊNH DẠNG WORD AZOTA / VĂN BẢN CHUẨN (Câu 1, Câu 2...)
+  const slides = parseSmartMathContentToSlides('ĐỀ KIỂM TRA', text);
+  return slides
+    .filter((s) => s.type !== 'theory')
+    .map((s, idx) => {
+      const promptWithFig = s.figureHtml ? `${s.prompt}<div class="my-2">${s.figureHtml}</div>` : s.prompt;
+      if (s.type === 'tf') {
+        return {
+          id: idx + 1,
+          type: 'tf',
+          question: promptWithFig,
+          statements: s.statements,
+          solution: s.solution
+        };
+      }
+      if (s.type === 'short') {
+        return {
+          id: idx + 1,
+          type: 'short',
+          question: promptWithFig,
+          shortAnswer: s.shortAnswer,
+          solution: s.solution
+        };
+      }
+      return {
+        id: idx + 1,
+        type: 'mcq',
+        question: promptWithFig,
+        options: s.options,
+        correct: s.correctIndex || 0,
+        solution: s.solution
+      };
+    });
+}
+
+// 6. Component hiển thị nội dung Toán học chuẩn KaTeX + HTML (Bảng biến thiên, SVG, Ảnh)
+function MathHtmlBox({ content, className = '' }) {
+  const boxRef = React.useRef(null);
+
+  useEffect(() => {
+    if (boxRef.current && window.renderMathInElement) {
+      try {
+        window.renderMathInElement(boxRef.current, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '\\[', right: '\\]', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false }
+          ],
+          throwOnError: false
+        });
+      } catch (e) {}
+    }
+  }, [content]);
+
+  return (
+    <div
+      ref={boxRef}
+      className={className}
+      dangerouslySetInnerHTML={{ __html: content || '' }}
+    />
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('lessons');
   const [selectedGrade, setSelectedGrade] = useState(10);
@@ -2009,21 +2370,112 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     fetchData();
   };
 
+  // Đọc trực tiếp file .tex hoặc file Word .docx (Azota) thành đề thi chuẩn
+  const handleQuizFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!newTitle) {
+      setNewTitle(file.name.replace(/\.[a-zA-Z0-9]+$/, ''));
+    }
+
+    const fileNameLower = file.name.toLowerCase();
+    try {
+      // 1. Nếu là file LaTeX (.tex) hoặc .txt
+      if (fileNameLower.endsWith('.tex') || fileNameLower.endsWith('.txt')) {
+        const text = await file.text();
+        setRawQuizText(text);
+      }
+      // 2. Nếu là file Word (.docx) chuẩn Azota (kèm cả hình ảnh/bảng biến thiên trong Word)
+      else if (fileNameLower.endsWith('.docx')) {
+        if (!window.mammoth) {
+          return alert('Thư viện đọc Word đang tải, vui lòng thử lại sau 2 giây!');
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await window.mammoth.convertToHtml({ arrayBuffer });
+        // Giữ nguyên thẻ <img> (đồ thị/bảng biến thiên trong Word) chuyển sang cú pháp [IMG:...]
+        let html = result.value || '';
+        html = html.replace(/<img[^>]+src="([^"]+)"[^>]*>/gi, '\n[IMG:$1]\n');
+        html = html.replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n');
+        html = html.replace(/<br\s*\/?>/gi, '\n');
+        html = html.replace(/<[^>]+>/g, '');
+        const txtArea = document.createElement('textarea');
+        txtArea.innerHTML = html;
+        setRawQuizText(txtArea.value.trim());
+      } else {
+        alert('Vui lòng chọn file .tex, .docx hoặc .txt!');
+      }
+    } catch (err) {
+      alert('Lỗi đọc file đề thi: ' + err.message);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // Dùng AI Gemini quét ảnh/PDF đề thi có đồ thị & bảng biến thiên sang thẳng bài tập Tab 3
+  const handleQuizImageOrPdfUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    if (!geminiApiKey.trim()) {
+      return alert('Vui lòng nhập Gemini API Key (ở Tab 5) để AI tự động vẽ lại Bảng biến thiên & Đồ thị từ Ảnh/PDF!');
+    }
+    if (!newTitle) setNewTitle(files[0].name.replace(/\.[a-zA-Z0-9]+$/, ''));
+
+    setIsExtractingPdf(true);
+    try {
+      const readAsDataURL = (f) =>
+        new Promise((res) => {
+          const r = new FileReader();
+          r.onload = (ev) => res(ev.target.result);
+          r.readAsDataURL(f);
+        });
+      const b64List = await Promise.all(files.map(readAsDataURL));
+
+      const prompt = `Hãy số hóa đề Toán trong ảnh sang định dạng chuẩn sau để học sinh làm bài như Azota (KHÔNG bọc trong markdown \`\`\`):
+1. Công thức Toán bọc trong $...$ chuẩn LaTeX.
+2. Trắc nghiệm 4 lựa chọn: ghi "PHẦN I. CÂU TRẮC NGHIỆM", mỗi câu "Câu 1. ...", 4 dòng "A. ...", "B. ...", "C. ...", "D. ...", thêm dấu * trước đáp án đúng (VD: "*A. ...").
+3. Đúng/Sai: ghi "PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI", các ý "a) ...", "b) ...", "c) ...", "d) ...", thêm dấu * trước ý Đúng.
+4. Trả lời ngắn: ghi "PHẦN III. CÂU TRẮC NGHIỆM TRẢ LỜI NGẮN", dưới đề có dòng "Đáp số: ...".
+5. ĐẶC BIỆT: Nếu câu hỏi có BẢNG BIẾN THIÊN hoặc ĐỒ THỊ HÀM SỐ / HÌNH HỌC, hãy vẽ lại thật chuẩn xác thành thẻ <svg viewBox="0 0 340 210" class="w-full max-w-[360px] h-auto mx-auto my-2 bg-white border rounded-xl p-2" xmlns="http://www.w3.org/2000/svg">...</svg> trên 1 dòng ngay dưới lời dẫn câu hỏi đó.`;
+
+      const parts = [
+        { text: prompt },
+        ...b64List.map((b64) => ({
+          inline_data: {
+            mime_type: b64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/)?.[1] || 'image/jpeg',
+            data: b64.includes(',') ? b64.split(',')[1] : b64
+          }
+        }))
+      ];
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey.trim()}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.1 } })
+        }
+      );
+      const data = await res.json();
+      const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const cleaned = resultText.replace(/^```[a-z]*\n?/gim, '').replace(/```$/gm, '').trim();
+      setRawQuizText((prev) => (prev ? prev + '\n\n' + cleaned : cleaned));
+    } catch (err) {
+      alert('Lỗi AI đọc đề: ' + err.message);
+    } finally {
+      setIsExtractingPdf(false);
+      e.target.value = '';
+    }
+  };
+
   const addExercise = async () => {
-    if (!newTitle || !rawQuizText) return alert('Nhập tên bài tập và nội dung câu hỏi!');
-    const blocks = rawQuizText.trim().split(/\n\s*\n/);
-    const parsedQuestions = blocks.map((block, idx) => {
-      const lines = block.trim().split('\n');
-      const questionText = lines[0];
-      const options = [];
-      let correctIndex = 0;
-      lines.slice(1).forEach((line, optIdx) => {
-        const isCorrect = line.trim().startsWith('*');
-        if (isCorrect) correctIndex = optIdx;
-        options.push(line.trim().replace(/^\*/, '').trim());
-      });
-      return { id: idx + 1, question: questionText, options, correct: correctIndex };
-    });
+    if (!newTitle.trim() || !rawQuizText.trim()) {
+      return alert('Vui lòng nhập Tên đề kiểm tra và tải file .tex / .docx (hoặc dán nội dung câu hỏi)!');
+    }
+
+    const parsedQuestions = parseAzotaOrTexToQuestions(rawQuizText);
+    if (parsedQuestions.length === 0) {
+      return alert('Không nhận diện được câu hỏi nào! Hãy kiểm tra lại định dạng Câu 1... hoặc \\begin{ex}...');
+    }
 
     try {
       const jsonString = JSON.stringify(parsedQuestions);
@@ -2034,7 +2486,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       );
 
       const { error } = await supabase.from('exercises').insert([{
-        title: newTitle,
+        title: newTitle.trim(),
         grade: selectedGrade,
         category: uploadCategory,
         drive_file_id: driveFileId,
@@ -2042,13 +2494,14 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
         is_active: true
       }]);
 
-      if (!error) {
-        setDriveContentCache((prev) => ({ ...prev, [driveFileId]: jsonString }));
-        setNewTitle('');
-        setRawQuizText('');
-        setSelectedCategory(uploadCategory);
-        fetchData();
-      }
+      if (error) throw error;
+
+      setDriveContentCache((prev) => ({ ...prev, [driveFileId]: jsonString }));
+      setNewTitle('');
+      setRawQuizText('');
+      setSelectedCategory(uploadCategory);
+      fetchData();
+      alert(`✅ Đã tạo đề "${newTitle.trim()}" (${parsedQuestions.length} câu hỏi chuẩn Azota) và lưu lên Google Drive!`);
     } catch (err) {
       alert('Lỗi lưu bài tập lên Google Drive: ' + err.message);
     }
@@ -2079,29 +2532,75 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     }
   };
 
+  // Chấm điểm chuẩn cấu trúc mới (Trắc nghiệm + Đúng/Sai bậc thang + Trả lời ngắn)
   const submitExercise = async () => {
-    const sName = isTeacher ? 'Giáo viên thử bài' : `${currentStudent.student_code} - ${currentStudent.full_name}`;
-    const sClass = isTeacher ? 'GV' : `${currentStudent.class_name} (${currentStudent.category === 'school' ? 'Trường' : 'Nhà'})`;
-
     const questions = activeExercise.questions_json || [];
-    let correctCount = 0;
+    if (questions.length === 0) return;
+
+    const sName = isTeacher
+      ? 'Giáo viên thử bài'
+      : `${currentStudent.student_code} - ${currentStudent.full_name}`;
+    const sClass = isTeacher
+      ? 'GV'
+      : `${currentStudent.class_name} (${currentStudent.category === 'school' ? 'Trường' : 'Nhà'})`;
+
+    let earnedPoints = 0;
+    let maxPoints = 0;
+    let fullCorrectCount = 0;
+
     questions.forEach((q, idx) => {
-      if (userAnswers[idx] === q.correct) correctCount++;
+      const uAns = userAnswers[idx];
+      if (q.type === 'tf') {
+        // Chuẩn Bộ GD: Đúng 1 ý = 0.1, 2 ý = 0.25, 3 ý = 0.5, 4 ý = 1.0
+        maxPoints += 1.0;
+        const stmts = q.statements || [];
+        let matchCount = 0;
+        stmts.forEach((st, sIdx) => {
+          if (uAns && uAns[sIdx] === st.isTrue) matchCount++;
+        });
+        if (matchCount === 4) { earnedPoints += 1.0; fullCorrectCount++; }
+        else if (matchCount === 3) earnedPoints += 0.5;
+        else if (matchCount === 2) earnedPoints += 0.25;
+        else if (matchCount === 1) earnedPoints += 0.1;
+      } else if (q.type === 'short') {
+        maxPoints += 0.5;
+        const cleanUser = String(uAns || '').trim().replace(',', '.').toLowerCase();
+        const cleanKey = String(q.shortAnswer || '').trim().replace(',', '.').toLowerCase();
+        if (cleanUser && cleanUser === cleanKey) {
+          earnedPoints += 0.5;
+          fullCorrectCount++;
+        }
+      } else {
+        // MCQ
+        maxPoints += 0.25;
+        if (uAns === q.correct) {
+          earnedPoints += 0.25;
+          fullCorrectCount++;
+        }
+      }
     });
-    const finalScore = questions.length > 0 ? ((correctCount / questions.length) * 10).toFixed(2) : 0;
+
+    const finalScore10 = maxPoints > 0 ? Number(((earnedPoints / maxPoints) * 10).toFixed(2)) : 0;
 
     await supabase.from('submissions').insert([{
       exercise_id: activeExercise.id,
       student_name: sName,
       student_class: sClass,
-      score: finalScore,
-      total_correct: correctCount,
+      score: finalScore10,
+      total_correct: fullCorrectCount,
       total_questions: questions.length
     }]);
 
-    setSubmittedScore({ score: finalScore, correct: correctCount, total: questions.length });
-  };
+    setSubmittedScore({
+      score: finalScore10,
+      correct: fullCorrectCount,
+      total: questions.length
+    });
 
+    if (isTeacher) {
+      fetchData();
+    }
+  };
   // Component chọn nhanh Up bên Trường hay bên Nhà cho Giáo viên
   const CategorySelectorPill = () => (
     <div className="flex items-center justify-between bg-slate-950/90 p-1.5 rounded-xl border border-slate-700 text-xs">
@@ -2682,70 +3181,168 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           </div>
         )}
 
-        {/* ==================== TAB 3: BÀI TẬP & KẾT QUẢ (TỰ GHI NHẬN TÊN HỌC SINH ĐĂNG NHẬP) ==================== */}
+        {/* ==================== TAB 3: BÀI TẬP & ĐỀ KIỂM TRA CHUẨN AZOTA / LATEX EX_TEST ==================== */}
         {activeTab === 'exercises' && (
-          <div className="space-y-4 bg-slate-50 p-4 rounded-2xl min-h-[80vh]">
+          <div className="space-y-4 bg-slate-100 p-3 sm:p-4 rounded-2xl min-h-[82vh]">
             {!activeExercise ? (
               <>
                 {isTeacher && (
-                  <div className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-100 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="font-bold text-indigo-700 text-sm">+ Giao Bài Tập Rèn Luyện Mới (Khối {selectedGrade})</h3>
+                  <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-indigo-100 space-y-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
+                      <div>
+                        <h3 className="font-extrabold text-indigo-800 text-sm sm:text-base flex items-center gap-1.5">
+                          <Sparkles className="w-4 h-4 text-amber-500" />
+                          + Giao Đề Kiểm Tra Chuẩn Azota / File LaTeX (.tex) ({selectedGrade === 0 ? 'Lớp Khác' : `Khối ${selectedGrade}`})
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          Hỗ trợ tải trực tiếp <strong>File .tex (gói ex_test)</strong>, <strong>File Word (.docx Azota)</strong> hoặc <strong>Ảnh chụp đề có Bảng biến thiên / Đồ thị</strong>.
+                        </p>
+                      </div>
                       <div className="w-full sm:w-80">
                         <CategorySelectorPill />
                       </div>
                     </div>
-                    <input
-                      type="text"
-                      placeholder="Tên bài tập (VD: Ôn tập Vectơ - Đề 1)"
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-xl text-sm"
-                    />
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                      <div className="md:col-span-5">
+                        <input
+                          type="text"
+                          placeholder="Tên đề kiểm tra (VD: Kiểm tra 15p - Hàm số & Bảng biến thiên)"
+                          value={newTitle}
+                          onChange={(e) => setNewTitle(e.target.value)}
+                          className="w-full px-3.5 py-2.5 border rounded-xl text-sm font-bold text-slate-800"
+                        />
+                      </div>
+
+                      {/* Nút 1: Chọn file .tex hoặc Word .docx Azota */}
+                      <div className="md:col-span-4">
+                        <label className="flex items-center justify-center gap-2 w-full py-2.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-2 border-dashed border-indigo-400 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer transition">
+                          <FileUp className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span>📄 Chọn File .TEX hoặc Word (.docx)</span>
+                          <input
+                            type="file"
+                            accept=".tex,.docx,.txt"
+                            onChange={handleQuizFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+
+                      {/* Nút 2: Quét từ Ảnh đề thi có Đồ thị / BBT bằng AI */}
+                      <div className="md:col-span-3">
+                        <label className="flex items-center justify-center gap-1.5 w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-2 border-dashed border-emerald-400 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer transition">
+                          <Upload className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>{isExtractingPdf ? '⏳ AI đang vẽ BBT...' : '🖼️ Quét Ảnh Đề (Có BBT/Đồ thị)'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={handleQuizImageOrPdfUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
                     <textarea
-                      rows={5}
-                      placeholder={`Nhập câu hỏi nhanh (mỗi câu cách nhau 1 dòng trống, thêm dấu * trước đáp án đúng):\nCâu 1: Cho 3 điểm A, B, C. Tổng AB + BC bằng:\nA. CA\n*B. AC\nC. BA\nD. 0`}
+                      rows={7}
+                      placeholder={
+`Bạn có thể chọn file .tex / .docx ở trên, hoặc dán trực tiếp code LaTeX ex_test / văn bản Azota vào đây:
+
+Ví dụ 1 (Code LaTeX .tex):
+\\begin{ex}
+Cho hàm số $y=f(x)$ có bảng biến thiên như sau:
+\\begin{tikzpicture}
+\\tkzTabInit[nocadre=false,lgt=1.2,espcl=2.5]{$x$ /0.6,$y'$ /0.6,$y$ /2}{$ -\\infty $ , $0$ , $2$ , $ +\\infty $}
+\\tkzTabLine{ , + , z , - , z , + , }
+\\tkzTabVar{-/ $-\\infty$ , +/ $3$ , -/ $-1$ , +/ $+\\infty$}
+\\end{tikzpicture}
+Hàm số đã cho đồng biến trên khoảng nào dưới đây?
+\\choice
+{\\True $(-\\infty; 0)$}
+{$(0; 2)$}
+{$(-1; 3)$}
+{$(0; +\\infty)$}
+\\loigiai{Dựa vào bảng biến thiên, $y' > 0$ trên $(-\\infty; 0)$ và $(2; +\\infty)$.}
+\\end{ex}`}
                       value={rawQuizText}
                       onChange={(e) => setRawQuizText(e.target.value)}
-                      className="w-full p-3 border rounded-xl text-sm font-mono"
+                      className="w-full p-3 border rounded-xl text-xs sm:text-sm font-mono bg-slate-50 focus:bg-white"
                     />
-                    <button
-                      onClick={addExercise}
-                      className="bg-[#2563eb] hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm"
-                    >
-                      Đăng Bài Tập ({uploadCategory === 'school' ? '🏫 Trường' : '🏠 Nhà'})
-                    </button>
+
+                    {/* Xem trước nhanh số câu đã nhận diện */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <span className="text-xs font-bold text-slate-600">
+                        🔍 Đã nhận diện tự động:{' '}
+                        <strong className="text-indigo-700">
+                          {parseAzotaOrTexToQuestions(rawQuizText).length} câu hỏi
+                        </strong>{' '}
+                        (Hỗ trợ công thức LaTeX, Bảng biến thiên <code>\tkzTab</code>, Đồ thị SVG, Trắc nghiệm, Đúng/Sai, Trả lời ngắn)
+                      </span>
+
+                      <button
+                        onClick={addExercise}
+                        className="bg-[#2563eb] hover:bg-blue-700 text-white font-extrabold px-6 py-2.5 rounded-xl text-xs sm:text-sm shadow-md transition"
+                      >
+                        🚀 Giao Đề Kiểm Tra ({uploadCategory === 'school' ? '🏫 Trường' : '🏠 Nhà'})
+                      </button>
+                    </div>
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* DANH SÁCH ĐỀ KIỂM TRA ĐÃ GIAO */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {exercises.length === 0 && (
+                    <p className="text-sm text-slate-400 col-span-3 py-10 text-center">
+                      Chưa có đề kiểm tra / bài tập nào trong mục này.
+                    </p>
+                  )}
                   {exercises.map((ex) => (
-                    <div key={ex.id} className="bg-white p-4 rounded-2xl shadow-sm border flex items-center justify-between">
+                    <div
+                      key={ex.id}
+                      className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 hover:border-blue-400 flex flex-col justify-between space-y-3 transition"
+                    >
                       <div>
-                        <h3 className="font-bold text-slate-800">{ex.title}</h3>
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="font-extrabold text-slate-800 text-sm sm:text-base">
+                            📝 {ex.title}
+                          </h3>
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-bold shrink-0 ${
+                            ex.category === 'school' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {ex.category === 'school' ? '🏫 Trường' : '🏠 Nhà'} • {ex.grade === 0 ? 'Khác' : `K${ex.grade}`}
+                          </span>
+                        </div>
                         <p className="text-xs text-slate-500 mt-1">
-                          Số câu hỏi: {(ex.questions_json || []).length} câu • {ex.category === 'school' ? '🏫 Lớp Trường' : '🏠 Lớp Nhà'}
+                          Giao diện chuẩn Azota • Chấm điểm tự động
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+
+                      <div className="flex items-center justify-between pt-3 border-t gap-2">
                         <button
                           onClick={() => openExercise(ex)}
-                          className="bg-[#2563eb] hover:bg-blue-700 text-white text-xs md:text-sm font-semibold px-4 py-2 rounded-xl shadow-sm"
+                          className="flex-1 bg-[#2563eb] hover:bg-blue-700 text-white text-xs sm:text-sm font-extrabold py-2 px-4 rounded-xl shadow-sm transition"
                         >
-                          {isTeacher ? 'Xem đề & Bảng điểm' : 'Vào làm bài'}
+                          {isTeacher ? '👁️ Xem Đề & Bảng Điểm' : '✏️ Vào Làm Bài Ngay'}
                         </button>
+
                         {isTeacher && (
-                          <button
-                            onClick={async () => {
-                              if (window.confirm('Xóa bài tập này?')) {
-                                await supabase.from('exercises').delete().eq('id', ex.id);
-                                fetchData();
-                              }
-                            }}
-                            className="text-rose-500 hover:bg-rose-50 p-2 rounded-lg"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleRenameItemSyncDrive('exercises', ex, '.json')}
+                              className="text-blue-600 hover:bg-blue-50 px-2 py-1.5 rounded-lg text-xs font-bold"
+                              title="Đổi tên đề kiểm tra"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => handleDeleteItemSyncDrive('exercises', ex)}
+                              className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"
+                              title="Xóa đề trên Web & Google Drive"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -2753,90 +3350,317 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 </div>
               </>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                <div className={`${isTeacher ? 'lg:col-span-7' : 'lg:col-span-12'} bg-white p-4 md:p-6 rounded-2xl shadow-sm border space-y-4`}>
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <h2 className="font-bold text-lg text-indigo-800">{activeExercise.title}</h2>
+              /* ==================== GIAO DIỆN LÀM BÀI TRỰC TUYẾN CHUẨN AZOTA ==================== */
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                {/* Cột trái (8 phần): Nội dung Đề thi hiển thị Toán KaTeX, Bảng biến thiên, Đồ thị */}
+                <div className="lg:col-span-8 space-y-4">
+                  <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[11px] font-extrabold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">
+                        ĐỀ KIỂM TRA TRỰC TUYẾN • CHUẨN AZOTA
+                      </span>
+                      <h2 className="font-extrabold text-lg sm:text-xl text-slate-900 mt-1">
+                        {activeExercise.title}
+                      </h2>
+                    </div>
+
                     <button
                       onClick={() => setActiveExercise(null)}
-                      className="text-xs font-semibold text-slate-500 hover:text-slate-800 bg-slate-100 px-3 py-1.5 rounded-lg"
+                      className="text-xs font-extrabold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-xl transition"
                     >
-                      ← Quay lại danh sách
+                      ← Quay lại danh sách đề
                     </button>
                   </div>
 
                   {submittedScore && (
-                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl text-center space-y-1">
-                      <Award className="w-8 h-8 text-emerald-600 mx-auto" />
-                      <p className="font-bold text-emerald-800 text-lg">
-                        Điểm của em: {submittedScore.score} / 10 điểm
+                    <div className="bg-emerald-50 border-2 border-emerald-400 p-5 rounded-2xl text-center space-y-1.5 shadow-sm">
+                      <Award className="w-10 h-10 text-emerald-600 mx-auto" />
+                      <p className="font-extrabold text-emerald-900 text-xl sm:text-2xl">
+                        🎉 Điểm số của em: <span className="text-3xl text-emerald-600">{submittedScore.score}</span> / 10 điểm
                       </p>
-                      <p className="text-xs text-emerald-600">
-                        Số câu đúng: {submittedScore.correct}/{submittedScore.total} câu — Đã lưu kết quả vào hồ sơ của Thầy!
+                      <p className="text-xs sm:text-sm font-semibold text-emerald-700">
+                        Số câu hoàn thành đúng tuyệt đối: {submittedScore.correct}/{submittedScore.total} câu — Điểm đã tự động lưu vào Sổ điểm của Thầy Vy!
                       </p>
                     </div>
                   )}
 
+                  {/* DANH SÁCH CÂU HỎI HIỂN THỊ CÔNG THỨC KATEX + BẢNG BIẾN THIÊN + ĐỒ THỊ */}
                   <div className="space-y-4">
-                    {(activeExercise.questions_json || []).map((q, qIdx) => (
-                      <div key={qIdx} className="p-4 rounded-xl border bg-slate-50/50 space-y-2">
-                        <p className="font-semibold text-sm md:text-base">{q.question}</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {q.options.map((opt, oIdx) => (
-                            <button
-                              key={oIdx}
-                              onClick={() => setUserAnswers({ ...userAnswers, [qIdx]: oIdx })}
-                              className={`text-left px-3 py-2 rounded-xl border text-sm transition ${
-                                userAnswers[qIdx] === oIdx
-                                  ? 'bg-[#2563eb] text-white border-blue-600 font-semibold'
-                                  : 'bg-white hover:bg-blue-50'
-                              }`}
-                            >
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                    {(activeExercise.questions_json || []).map((q, qIdx) => {
+                      const qType = q.type || 'mcq';
+                      return (
+                        <div
+                          key={qIdx}
+                          id={`azota-q-${qIdx}`}
+                          className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 scroll-mt-20"
+                        >
+                          {/* Tiêu đề Câu & Nội dung đề bài */}
+                          <div className="flex items-start gap-2.5">
+                            <span className="shrink-0 bg-[#2563eb] text-white font-extrabold text-xs sm:text-sm px-3 py-1 rounded-lg shadow-sm mt-0.5">
+                              Câu {qIdx + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
+                                {qType === 'tf'
+                                  ? 'Phần II • Trắc nghiệm Đúng / Sai'
+                                  : qType === 'short'
+                                  ? 'Phần III • Trả lời ngắn'
+                                  : 'Phần I • Trắc nghiệm 4 phương án'}
+                              </span>
+                              <MathHtmlBox
+                                content={q.question}
+                                className="text-slate-900 font-semibold text-base sm:text-lg leading-relaxed overflow-x-auto"
+                              />
+                            </div>
+                          </div>
 
-                  <button
-                    onClick={submitExercise}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-md"
-                  >
-                    Nộp Bài & Ghi Nhận Điểm
-                  </button>
+                          {/* DẠNG 1: TRẮC NGHIỆM 4 LỰA CHỌN A, B, C, D */}
+                          {qType === 'mcq' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                              {(q.options || []).map((opt, oIdx) => {
+                                const letter = ['A', 'B', 'C', 'D'][oIdx];
+                                const isSelected = userAnswers[qIdx] === oIdx;
+                                const isCorrect = q.correct === oIdx;
+
+                                let btnStyle = 'bg-slate-50/80 hover:bg-blue-50/60 border-slate-200 text-slate-800';
+                                let circleStyle = 'bg-white border border-slate-300 text-slate-700';
+
+                                if (submittedScore) {
+                                  if (isCorrect) {
+                                    btnStyle = 'bg-emerald-50 border-2 border-emerald-500 text-emerald-950 font-bold';
+                                    circleStyle = 'bg-emerald-600 text-white';
+                                  } else if (isSelected) {
+                                    btnStyle = 'bg-rose-50 border-2 border-rose-400 text-rose-900';
+                                    circleStyle = 'bg-rose-600 text-white';
+                                  }
+                                } else if (isSelected) {
+                                  btnStyle = 'bg-blue-50 border-2 border-[#2563eb] text-blue-950 font-bold shadow-sm';
+                                  circleStyle = 'bg-[#2563eb] text-white';
+                                }
+
+                                return (
+                                  <button
+                                    key={oIdx}
+                                    type="button"
+                                    disabled={!!submittedScore}
+                                    onClick={() => setUserAnswers({ ...userAnswers, [qIdx]: oIdx })}
+                                    className={`p-3 rounded-xl border text-left flex items-center gap-3 transition ${btnStyle}`}
+                                  >
+                                    <span className={`w-8 h-8 rounded-full font-extrabold text-sm flex items-center justify-center shrink-0 ${circleStyle}`}>
+                                      {letter}
+                                    </span>
+                                    <MathHtmlBox
+                                      content={opt.replace(/^[A-D][\.\)]\s*/, '')}
+                                      className="text-sm sm:text-base flex-1 overflow-x-auto"
+                                    />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* DẠNG 2: ĐÚNG / SAI (a, b, c, d) CHUẨN AZOTA */}
+                          {qType === 'tf' && (
+                            <div className="border rounded-xl overflow-hidden divide-y">
+                              {(q.statements || []).map((st, sIdx) => {
+                                const currentObj = userAnswers[qIdx] || {};
+                                const userChoice = currentObj[sIdx];
+                                return (
+                                  <div
+                                    key={sIdx}
+                                    className="p-3 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                                  >
+                                    <div className="flex items-start gap-2 flex-1">
+                                      <span className="font-extrabold text-blue-700 text-sm sm:text-base">
+                                        {st.label}
+                                      </span>
+                                      <MathHtmlBox
+                                        content={st.text}
+                                        className="text-slate-800 text-sm sm:text-base font-medium"
+                                      />
+                                    </div>
+
+                                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                      <button
+                                        type="button"
+                                        disabled={!!submittedScore}
+                                        onClick={() =>
+                                          setUserAnswers({
+                                            ...userAnswers,
+                                            [qIdx]: { ...currentObj, [sIdx]: true }
+                                          })
+                                        }
+                                        className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold border transition ${
+                                          userChoice === true
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow'
+                                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        Đúng
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={!!submittedScore}
+                                        onClick={() =>
+                                          setUserAnswers({
+                                            ...userAnswers,
+                                            [qIdx]: { ...currentObj, [sIdx]: false }
+                                          })
+                                        }
+                                        className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold border transition ${
+                                          userChoice === false
+                                            ? 'bg-amber-500 text-slate-950 border-amber-500 shadow'
+                                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        Sai
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* DẠNG 3: TRẢ LỜI NGẮN (ĐIỀN ĐÁP SỐ) */}
+                          {qType === 'short' && (
+                            <div className="bg-slate-50 p-3.5 rounded-xl border flex flex-wrap items-center gap-3">
+                              <span className="text-xs sm:text-sm font-extrabold text-slate-700">
+                                ✍️ Điền đáp số của em:
+                              </span>
+                              <input
+                                type="text"
+                                disabled={!!submittedScore}
+                                value={userAnswers[qIdx] || ''}
+                                onChange={(e) => setUserAnswers({ ...userAnswers, [qIdx]: e.target.value })}
+                                placeholder="VD: 12,5 hoặc -3"
+                                className="px-4 py-2 border-2 border-indigo-300 focus:border-blue-600 rounded-xl text-sm sm:text-base font-extrabold text-indigo-900 w-48 outline-none bg-white"
+                              />
+                              {submittedScore && (
+                                <span className="text-xs sm:text-sm font-extrabold text-emerald-700 bg-emerald-100 px-3 py-1 rounded-lg">
+                                  Đáp án chuẩn: {q.shortAnswer}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* HIỂN THỊ LỜI GIẢI CHI TIẾT SAU KHI NỘP BÀI (HOẶC CHO GIÁO VIÊN) */}
+                          {(submittedScore || isTeacher) && q.solution && (
+                            <div className="bg-emerald-50/80 border-l-4 border-emerald-500 p-3.5 rounded-r-xl text-xs sm:text-sm space-y-1">
+                              <div className="font-extrabold text-emerald-800">💡 Lời giải chi tiết:</div>
+                              <MathHtmlBox content={q.solution} className="text-slate-700 leading-relaxed" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                {isTeacher && (
-                  <div className="lg:col-span-5 bg-white p-4 rounded-2xl shadow-sm border space-y-3 h-fit">
-                    <h3 className="font-bold text-indigo-700 flex items-center gap-2 text-sm border-b pb-2">
-                      <Users className="w-4 h-4" /> Danh sách Học sinh đã nộp ({submissionsList.length})
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs md:text-sm text-left">
-                        <thead className="bg-slate-100 text-slate-600">
-                          <tr>
-                            <th className="p-2 rounded-l-lg">Học sinh</th>
-                            <th className="p-2">Lớp</th>
-                            <th className="p-2">Số câu</th>
-                            <th className="p-2 rounded-r-lg text-right">Điểm</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {submissionsList.map((s) => (
-                            <tr key={s.id}>
-                              <td className="p-2 font-medium">{s.student_name}</td>
-                              <td className="p-2 text-slate-500">{s.student_class}</td>
-                              <td className="p-2">{s.total_correct}/{s.total_questions}</td>
-                              <td className="p-2 text-right font-bold text-blue-600">{s.score}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                {/* Cột phải (4 phần): PHIẾU TRẢ LỜI TRẮC NGHIỆM CỐ ĐỊNH NHƯ AZOTA + BẢNG ĐIỂM LỚP */}
+                <div className="lg:col-span-4 space-y-4 lg:sticky lg:top-16">
+                  <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-md border border-indigo-100 space-y-4">
+                    <div className="flex items-center justify-between border-b pb-2.5">
+                      <h3 className="font-extrabold text-indigo-900 text-sm sm:text-base">
+                        📋 Phiếu Làm Bài ({Object.keys(userAnswers).length}/{(activeExercise.questions_json || []).length} câu)
+                      </h3>
+                      {!isTeacher && currentStudent && (
+                        <span className="text-xs font-extrabold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-md">
+                          SBD: {currentStudent.student_code}
+                        </span>
+                      )}
                     </div>
+
+                    {/* Lưới ô số thứ tự câu hỏi chuẩn Azota */}
+                    <div className="grid grid-cols-5 sm:grid-cols-6 gap-2 max-h-60 overflow-y-auto p-1">
+                      {(activeExercise.questions_json || []).map((q, idx) => {
+                        const ans = userAnswers[idx];
+                        const isDone =
+                          q.type === 'tf'
+                            ? ans && Object.keys(ans).length > 0
+                            : q.type === 'short'
+                            ? String(ans || '').trim() !== ''
+                            : ans !== undefined;
+
+                        const badgeText =
+                          q.type === 'mcq' && ans !== undefined
+                            ? ['A', 'B', 'C', 'D'][ans]
+                            : '';
+
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById(`azota-q-${idx}`);
+                              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}
+                            className={`h-10 rounded-xl font-extrabold text-xs flex flex-col items-center justify-center border transition ${
+                              isDone
+                                ? 'bg-[#2563eb] text-white border-blue-600 shadow-sm'
+                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            <span>{idx + 1}</span>
+                            {badgeText && <span className="text-[9px] text-amber-300 leading-none">{badgeText}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {!submittedScore ? (
+                      <button
+                        onClick={() => {
+                          if (window.confirm('Em chắc chắn muốn nộp bài và chấm điểm?')) {
+                            submitExercise();
+                          }
+                        }}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 rounded-xl shadow-lg text-sm transition"
+                      >
+                        ✓ NỘP BÀI & CHẤM ĐIỂM NGAY
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setUserAnswers({});
+                          setSubmittedScore(null);
+                        }}
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-3 rounded-xl shadow text-xs sm:text-sm transition"
+                      >
+                        🔄 Làm lại đề này
+                      </button>
+                    )}
                   </div>
-                )}
+
+                  {/* Bảng kết quả nộp bài của học sinh (Dành cho Giáo viên) */}
+                  {isTeacher && (
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border space-y-3">
+                      <h3 className="font-extrabold text-indigo-800 flex items-center gap-1.5 text-xs sm:text-sm border-b pb-2">
+                        <Users className="w-4 h-4" /> Học sinh đã nộp ({submissionsList.length})
+                      </h3>
+                      <div className="overflow-x-auto max-h-72">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-slate-100 text-slate-600 font-bold">
+                            <tr>
+                              <th className="p-2 rounded-l-lg">Học sinh</th>
+                              <th className="p-2">Lớp</th>
+                              <th className="p-2 text-right rounded-r-lg">Điểm</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {submissionsList.map((s) => (
+                              <tr key={s.id} className="hover:bg-slate-50">
+                                <td className="p-2 font-bold text-slate-800">{s.student_name}</td>
+                                <td className="p-2 text-slate-500">{s.student_class}</td>
+                                <td className="p-2 text-right font-extrabold text-blue-600">{s.score}đ</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
