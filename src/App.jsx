@@ -46,7 +46,7 @@ const TABLET_PRO_DRAWING_INJECTION = `
     box-shadow: 0 10px 25px rgba(0,0,0,0.45);
   }
   .tb-quick-btn {
-    width: 40px;
+    width: 42px;
     height: 38px;
     border-radius: 10px;
     display: flex;
@@ -85,35 +85,29 @@ const TABLET_PRO_DRAWING_INJECTION = `
     if (!canvas || !scrollBox) return;
 
     window.palmRejectionOnlyPen = false;
-    var storageKey = 'vy_drawings_' + (document.title || 'default');
 
-    // Khôi phục nét viết đã nhúng trong file HTML trên Drive (hoặc bộ nhớ máy)
-    try {
-      if (window.SAVED_SLIDE_DRAWINGS && Array.isArray(window.SAVED_SLIDE_DRAWINGS) && typeof slideDrawings !== 'undefined') {
-        for (var i = 0; i < Math.min(slideDrawings.length, window.SAVED_SLIDE_DRAWINGS.length); i++) {
-          slideDrawings[i] = window.SAVED_SLIDE_DRAWINGS[i] || [];
-        }
-      }
-      var localBackup = localStorage.getItem(storageKey);
-      if (localBackup && typeof slideDrawings !== 'undefined') {
-        var parsed = JSON.parse(localBackup);
-        if (Array.isArray(parsed)) {
-          for (var j = 0; j < Math.min(slideDrawings.length, parsed.length); j++) {
-            if (parsed[j] && parsed[j].length > 0) slideDrawings[j] = parsed[j];
+    // HÀM NẠP NÉT VIẾT TỪ TRONG FILE HTML (DO THẦY VY ĐÃ LƯU TRÊN DRIVE) VÀO BẢNG VẼ
+    var restoreDrawingsFromHtml = function() {
+      try {
+        if (window.SAVED_SLIDE_DRAWINGS && Array.isArray(window.SAVED_SLIDE_DRAWINGS) && typeof slideDrawings !== 'undefined') {
+          for (var i = 0; i < window.SAVED_SLIDE_DRAWINGS.length; i++) {
+            if (window.SAVED_SLIDE_DRAWINGS[i] && window.SAVED_SLIDE_DRAWINGS[i].length > 0) {
+              slideDrawings[i] = window.SAVED_SLIDE_DRAWINGS[i];
+            }
+          }
+          if (typeof redrawCanvas === 'function') {
+            redrawCanvas();
           }
         }
+      } catch (err) {
+        console.error('Lỗi khôi phục nét vẽ:', err);
       }
-      if (typeof redrawCanvas === 'function') setTimeout(redrawCanvas, 80);
-    } catch (e) {}
-
-    var autoBackupLocal = function() {
-      try {
-        if (typeof slideDrawings !== 'undefined') {
-          localStorage.setItem(storageKey, JSON.stringify(slideDrawings));
-        }
-      } catch (e) {}
     };
-    canvas.addEventListener('pointerup', autoBackupLocal);
+
+    // Gọi khôi phục ngay khi mở bài và sau 200ms (đảm bảo chạy sau renderSlide của file gốc)
+    restoreDrawingsFromHtml();
+    setTimeout(restoreDrawingsFromHtml, 200);
+    setTimeout(restoreDrawingsFromHtml, 600);
 
     if (!document.getElementById('tablet-quick-helper')) {
       var helper = document.createElement('div');
@@ -128,7 +122,7 @@ const TABLET_PRO_DRAWING_INJECTION = `
         '<button id="qbtn-down" class="tb-quick-btn" title="Cuộn xuống viết tiếp"><span>▼</span><span class="lbl">Xuống</span></button>' +
         '<button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác"><span>↩️</span><span class="lbl">Lùi</span></button>' +
         '<div style="height:1px;background:#334155;margin:2px 0;"></div>' +
-        '<button id="qbtn-save" class="tb-quick-btn save-btn" title="Lưu nét viết lên Google Drive"><span>💾</span><span class="lbl">Lưu</span></button>';
+        '<button id="qbtn-save" class="tb-quick-btn save-btn" title="Lưu toàn bộ nét viết thẳng vào file HTML trên Google Drive"><span>💾</span><span class="lbl">Lưu Drive</span></button>';
       document.body.appendChild(helper);
 
       var syncQuickHighlight = function(tool) {
@@ -166,15 +160,19 @@ const TABLET_PRO_DRAWING_INJECTION = `
       document.getElementById('qbtn-undo').onclick = function() {
         if (typeof window.undoLastStroke === 'function') {
           window.undoLastStroke();
-          autoBackupLocal();
         }
       };
+
+      // KHI BẤM NÚT "💾 LƯU DRIVE": GỬI TOÀN BỘ MẢNG SLIDEDRAWINGS RA NGOÀI APP REACT ĐỂ GHI ĐÈ LÊN DRIVE
       document.getElementById('qbtn-save').onclick = function() {
-        if (typeof slideDrawings === 'undefined') return;
-        autoBackupLocal();
+        if (typeof slideDrawings === 'undefined') {
+          alert('File HTML này không có bộ nhớ bảng vẽ slideDrawings!');
+          return;
+        }
+        window.SAVED_SLIDE_DRAWINGS = JSON.parse(JSON.stringify(slideDrawings));
         window.parent.postMessage({
           type: 'VY_SAVE_SLIDE_DRAWINGS',
-          drawings: slideDrawings
+          drawings: window.SAVED_SLIDE_DRAWINGS
         }, '*');
       };
     }
@@ -1482,13 +1480,13 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       const embeddedScript = openTag + 'window.SAVED_SLIDE_DRAWINGS = ' + JSON.stringify(drawingsData) + ';' + closeTag;
       const regexOld = new RegExp(openTag + '[\\s\\S]*?' + closeTag, 'g');
 
-      let updatedHtml = rawHtml.replace(regexOld, '');
-      if (updatedHtml.includes('</head>')) {
-        updatedHtml = updatedHtml.replace('</head>', embeddedScript + '</head>');
+     let updatedHtml = rawHtml.replace(regexOld, '');
+      if (updatedHtml.includes('</body>')) {
+        updatedHtml = updatedHtml.replace('</body>', embeddedScript + '</body>');
       } else {
-        updatedHtml = embeddedScript + updatedHtml;
+        updatedHtml = updatedHtml + embeddedScript;
       }
-
+      
       const choice = window.prompt(
         `💾 LƯU NÉT VIẾT VÀO FILE HTML TRÊN GOOGLE DRIVE:\n\n` +
         `• Nhập 1: Lưu đè trực tiếp vào file HTML "${selectedLesson.title}" trên Drive.\n` +
