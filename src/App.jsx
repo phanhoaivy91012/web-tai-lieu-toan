@@ -1468,80 +1468,46 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   useEffect(() => {
     const handleMessageFromIframe = async (event) => {
       if (!event.data || event.data.type !== 'VY_SAVE_SLIDE_DRAWINGS') return;
-      if (!isTeacher) return alert('Đã lưu nháp nét viết trên thiết bị của em!');
+      if (!isTeacher) return alert('Đã lưu nháp nét viết trên thiết bị!');
       if (!selectedLesson) return;
 
       const drawingsData = event.data.drawings;
-      const rawHtml = selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id] || '';
-      if (!rawHtml) return alert('Không tìm thấy nội dung HTML để lưu!');
+      let rawHtml = selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id] || '';
+      if (!rawHtml) return alert('Không tìm thấy nội dung HTML của bài này!');
 
+      // Đóng gói mảng nét vẽ thành thẻ script chuẩn để nhúng thẳng vào file HTML trên Drive
       const openTag = '<scr' + 'ipt id="vy-saved-drawings">';
       const closeTag = '</scr' + 'ipt>';
       const embeddedScript = openTag + 'window.SAVED_SLIDE_DRAWINGS = ' + JSON.stringify(drawingsData) + ';' + closeTag;
       const regexOld = new RegExp(openTag + '[\\s\\S]*?' + closeTag, 'g');
 
-     let updatedHtml = rawHtml.replace(regexOld, '');
+      let updatedHtml = rawHtml.replace(regexOld, '');
       if (updatedHtml.includes('</body>')) {
         updatedHtml = updatedHtml.replace('</body>', embeddedScript + '</body>');
       } else {
         updatedHtml = updatedHtml + embeddedScript;
       }
-      
-      const choice = window.prompt(
-        `💾 LƯU NÉT VIẾT VÀO FILE HTML TRÊN GOOGLE DRIVE:\n\n` +
-        `• Nhập 1: Lưu đè trực tiếp vào file HTML "${selectedLesson.title}" trên Drive.\n` +
-        `• Nhập 2: Lưu thành một file HTML mới khác trên Drive.`,
-        '1'
-      );
-      if (!choice) return;
 
       try {
-        if (choice.trim() === '2') {
-          const newTitleName = window.prompt('Nhập tên cho file bài học HTML mới:', `${selectedLesson.title} (Bản viết bảng)`);
-          if (!newTitleName || !newTitleName.trim()) return;
-
+        if (selectedLesson.drive_file_id) {
+          // Ghi đè trực tiếp file trên Google Drive
+          await updateFileOnGoogleDrive(selectedLesson.drive_file_id, updatedHtml);
+          setDriveContentCache((prev) => ({ ...prev, [selectedLesson.drive_file_id]: updatedHtml }));
+          alert(`✅ Đã lưu trực tiếp nét viết bảng vào file trên Google Drive thành công!`);
+        } else {
+          // Nếu bài cũ chưa có file ID trên Drive thì tạo mới
           const newFileId = await uploadToGoogleDrive(
-            `[K${selectedGrade}-${selectedCategory.toUpperCase()}] ${newTitleName.trim()}.html`,
+            `[K${selectedGrade}-${selectedCategory.toUpperCase()}] ${selectedLesson.title}.html`,
             updatedHtml,
             'text/html'
           );
-
-          const { data: inserted, error } = await supabase
-            .from('lessons')
-            .insert([{
-              title: newTitleName.trim(),
-              grade: selectedGrade,
-              category: selectedCategory,
-              drive_file_id: newFileId,
-              html_cache: null,
-              is_active: true,
-              show_answers: selectedLesson.show_answers
-            }])
-            .select()
-            .single();
-
-          if (error) throw error;
+          await supabase.from('lessons').update({ drive_file_id: newFileId, html_cache: null }).eq('id', selectedLesson.id);
           setDriveContentCache((prev) => ({ ...prev, [newFileId]: updatedHtml }));
-          alert(`✅ Đã lưu thành file HTML mới "${newTitleName.trim()}" trên Google Drive!`);
-          await fetchData();
-          if (inserted) setSelectedLesson(inserted);
-        } else {
-          if (selectedLesson.drive_file_id) {
-            await updateFileOnGoogleDrive(selectedLesson.drive_file_id, updatedHtml);
-            setDriveContentCache((prev) => ({ ...prev, [selectedLesson.drive_file_id]: updatedHtml }));
-          } else {
-            const newFileId = await uploadToGoogleDrive(
-              `[K${selectedGrade}-${selectedCategory.toUpperCase()}] ${selectedLesson.title}.html`,
-              updatedHtml,
-              'text/html'
-            );
-            await supabase.from('lessons').update({ drive_file_id: newFileId, html_cache: null }).eq('id', selectedLesson.id);
-            setDriveContentCache((prev) => ({ ...prev, [newFileId]: updatedHtml }));
-          }
-          alert(`✅ Đã can thiệp và lưu nét viết trực tiếp vào file HTML "${selectedLesson.title}" trên Google Drive!`);
+          alert(`✅ Đã tạo và lưu file nét viết lên Google Drive thành công!`);
         }
+        await fetchData();
       } catch (err) {
-        alert('Lỗi khi lưu lên Google Drive: ' + err.message);
+        alert('Lỗi lưu nét viết lên Google Drive: ' + err.message);
       }
     };
 
@@ -1866,6 +1832,20 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   const getRenderedHtml = (lesson) => {
     const rawHtml = lesson?.html_cache || driveContentCache[lesson?.drive_file_id] || '';
     if (!rawHtml) return '';
+    
+    // Đoạn mã tự động tiêm công cụ lưu bảng và đồng bộ nét vẽ vào file HTML bất kỳ
+    const autoSaveBridgeCode = `
+      <script>
+        window.addEventListener('message', function(e) {
+          if (e.data && e.data.type === 'VY_REQUEST_DRAWINGS') {
+            if (typeof slideDrawings !== 'undefined') {
+              e.source.postMessage({ type: 'VY_SEND_DRAWINGS', drawings: slideDrawings }, e.origin);
+            }
+          }
+        });
+      </script>
+    `;
+
     const lockAnswerCode = lesson.show_answers ? '' : `
       <style>
         #solution-container, #reveal-btn-badge, .dap-an, .loi-giai, .answer, .solution {
@@ -1876,23 +1856,9 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           cursor: default !important;
         }
       </style>
-      <script>
-        window.addEventListener('DOMContentLoaded', function() {
-          window.toggleSolution = function() { return false; };
-          if (typeof renderSlide === 'function') {
-            const originalRenderSlide = renderSlide;
-            window.renderSlide = function() {
-              if (typeof revealedSlides !== 'undefined' && Array.isArray(revealedSlides)) {
-                revealedSlides.fill(false);
-              }
-              originalRenderSlide();
-            };
-            window.renderSlide();
-          }
-        });
-      </script>
     `;
-    const fullInjectedCode = TABLET_PRO_DRAWING_INJECTION + lockAnswerCode;
+
+    const fullInjectedCode = TABLET_PRO_DRAWING_INJECTION + autoSaveBridgeCode + lockAnswerCode;
     if (rawHtml.includes('</body>')) {
       return rawHtml.replace('</body>', `${fullInjectedCode}</body>`);
     }
