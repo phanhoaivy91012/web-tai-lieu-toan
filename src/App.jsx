@@ -1412,31 +1412,31 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return data.fileId;
   };
 
-  // 3. Đổi tên file trên Google Drive
+ // 3. Đổi tên file trên Google Drive (Kiểm tra phản hồi đồng bộ)
   const renameFileOnGoogleDrive = async (fileId, newName) => {
     if (!fileId) return;
-    try {
-      await fetch(GAS_DRIVE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'rename', fileId, newName })
-      });
-    } catch (e) {
-      console.error('Lỗi đổi tên trên Drive:', e);
+    const res = await fetch(GAS_DRIVE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'rename', fileId, newName })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Google Drive chưa nhận lệnh đổi tên (Hãy chọn Phiên bản mới trong Manage Deployments của Apps Script)');
     }
   };
 
-  // 4. Xóa file trên Google Drive
+  // 4. Xóa file trên Google Drive (Đưa vào thùng rác)
   const deleteFileOnGoogleDrive = async (fileId) => {
     if (!fileId) return;
-    try {
-      await fetch(GAS_DRIVE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'delete', fileId })
-      });
-    } catch (e) {
-      console.error('Lỗi xóa file trên Drive:', e);
+    const res = await fetch(GAS_DRIVE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'delete', fileId })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Google Drive chưa nhận lệnh xóa');
     }
   };
 
@@ -1551,34 +1551,44 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return () => window.removeEventListener('message', handleMessageFromIframe);
   }, [selectedLesson, driveContentCache, isTeacher, selectedGrade, selectedCategory]);
 
-  // 7. Hàm Đổi tên & Xóa đồng bộ trên cả Web và Google Drive
   const handleRenameItemSyncDrive = async (table, item, ext = '.html') => {
     const newName = window.prompt(`Nhập tên mới cho "${item.title}":`, item.title);
     if (!newName || !newName.trim() || newName.trim() === item.title) return;
     const cleanName = newName.trim();
 
-    const { error } = await supabase.from(table).update({ title: cleanName }).eq('id', item.id);
-    if (error) return alert('Lỗi đổi tên: ' + error.message);
+    try {
+      // 1. Đổi tên trực tiếp trên Google Drive trước
+      if (item.drive_file_id) {
+        await renameFileOnGoogleDrive(
+          item.drive_file_id,
+          `[K${item.grade}-${(item.category || 'home').toUpperCase()}] ${cleanName}${ext}`
+        );
+      }
+      // 2. Sau khi Drive đổi xong mới cập nhật tên trên Web
+      const { error } = await supabase.from(table).update({ title: cleanName }).eq('id', item.id);
+      if (error) throw error;
 
-    if (item.drive_file_id) {
-      await renameFileOnGoogleDrive(
-        item.drive_file_id,
-        `[K${item.grade}-${(item.category || 'home').toUpperCase()}] ${cleanName}${ext}`
-      );
+      if (selectedLesson?.id === item.id) {
+        setSelectedLesson({ ...selectedLesson, title: cleanName });
+      }
+      fetchData();
+      alert(`✅ Đã đồng bộ đổi tên thành "${cleanName}" trên cả Web và Google Drive!`);
+    } catch (err) {
+      alert('Lỗi đồng bộ Google Drive: ' + err.message);
     }
-    if (selectedLesson?.id === item.id) {
-      setSelectedLesson({ ...selectedLesson, title: cleanName });
-    }
-    fetchData();
   };
 
   const handleDeleteItemSyncDrive = async (table, item) => {
     if (!window.confirm(`Xóa "${item.title}" trên Web VÀ xóa luôn file trên Google Drive?`)) return;
-    if (item.drive_file_id) {
-      await deleteFileOnGoogleDrive(item.drive_file_id);
+    try {
+      if (item.drive_file_id) {
+        await deleteFileOnGoogleDrive(item.drive_file_id);
+      }
+      await supabase.from(table).delete().eq('id', item.id);
+      fetchData();
+    } catch (err) {
+      alert('Lỗi khi xóa file trên Google Drive: ' + err.message);
     }
-    await supabase.from(table).delete().eq('id', item.id);
-    fetchData();
   };
   
   // ================= AI VISION: CHUYỂN TỪ ẢNH & PDF SANG LATEX + HÌNH VẼ SVG =================
