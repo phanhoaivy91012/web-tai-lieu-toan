@@ -1465,49 +1465,117 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   }, [selectedLesson]);
 
   // 6. Nhận nét viết khi bấm nút "💾 Lưu" trên bảng vẽ -> Sửa thẳng HTML trên Drive hoặc Tạo file HTML khác
-  useEffect(() => {
+ useEffect(() => {
     const handleMessageFromIframe = async (event) => {
       if (!event.data || event.data.type !== 'VY_SAVE_SLIDE_DRAWINGS') return;
-      if (!isTeacher) return alert('Đã lưu nháp nét viết trên thiết bị!');
+      if (!isTeacher) return alert('Đã lưu nháp nét viết trên thiết bị của em!');
       if (!selectedLesson) return;
 
       const drawingsData = event.data.drawings;
       let rawHtml = selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id] || '';
-      if (!rawHtml) return alert('Không tìm thấy nội dung HTML của bài này!');
+      if (!rawHtml) return alert('Không tìm thấy mã nguồn HTML của bài học này!');
 
-      // Đóng gói mảng nét vẽ thành thẻ script chuẩn để nhúng thẳng vào file HTML trên Drive
+      const jsonDrawings = JSON.stringify(drawingsData);
+
+      // 1. GHI ĐÈ TRỰC TIẾP VÀO BIẾN slideDrawings GỐC TRONG FILE HTML (Để tải từ Drive về mở offline vẫn có nét viết ngay)
+      let updatedHtml = rawHtml.replace(
+        /slideDrawings\s*=\s*SLIDES\.map\(\s*\(\)\s*=>\s*\[\]\s*\)\s*;?/g,
+        `slideDrawings = ${jsonDrawings};`
+      );
+
+      // 2. NHÚNG KÈM BỘ TỰ ĐỘNG VẼ LẠI (Đảm bảo tương thích với mọi cấu trúc file HTML cũ/mới)
       const openTag = '<scr' + 'ipt id="vy-saved-drawings">';
       const closeTag = '</scr' + 'ipt>';
-      const embeddedScript = openTag + 'window.SAVED_SLIDE_DRAWINGS = ' + JSON.stringify(drawingsData) + ';' + closeTag;
-      const regexOld = new RegExp(openTag + '[\\s\\S]*?' + closeTag, 'g');
+      const embeddedScript =
+        openTag +
+        'window.SAVED_SLIDE_DRAWINGS = ' + jsonDrawings + ';' +
+        'window.addEventListener("load", function(){' +
+        '  var applyDrawings = function(){' +
+        '    if(typeof slideDrawings !== "undefined" && Array.isArray(window.SAVED_SLIDE_DRAWINGS)){' +
+        '      for(var i=0; i<window.SAVED_SLIDE_DRAWINGS.length; i++){' +
+        '        if(window.SAVED_SLIDE_DRAWINGS[i] && window.SAVED_SLIDE_DRAWINGS[i].length > 0){' +
+        '          slideDrawings[i] = window.SAVED_SLIDE_DRAWINGS[i];' +
+        '        }' +
+        '      }' +
+        '      if(typeof redrawCanvas === "function") redrawCanvas();' +
+        '    }' +
+        '  };' +
+        '  applyDrawings(); setTimeout(applyDrawings, 150); setTimeout(applyDrawings, 500);' +
+        '});' +
+        closeTag;
 
-      let updatedHtml = rawHtml.replace(regexOld, '');
+      const regexOld = new RegExp(openTag + '[\\s\\S]*?' + closeTag, 'g');
+      updatedHtml = updatedHtml.replace(regexOld, '');
+
       if (updatedHtml.includes('</body>')) {
         updatedHtml = updatedHtml.replace('</body>', embeddedScript + '</body>');
       } else {
         updatedHtml = updatedHtml + embeddedScript;
       }
 
+      // Hỏi giáo viên muốn Lưu đè lên file hiện tại hay Tạo thành file HTML mới trên Drive
+      const choice = window.prompt(
+        `💾 ĐỒNG BỘ NÉT VIẾT LÊN GOOGLE DRIVE:\n\n` +
+        `• Nhập 1: Ghi đè thẳng vào file "${selectedLesson.title}" trên Drive (Tải từ Drive về mở lên có nguyên nét viết).\n` +
+        `• Nhập 2: Lưu thành một file HTML mới trên Drive.`,
+        '1'
+      );
+      if (!choice) return;
+
       try {
-        if (selectedLesson.drive_file_id) {
-          // Ghi đè trực tiếp file trên Google Drive
-          await updateFileOnGoogleDrive(selectedLesson.drive_file_id, updatedHtml);
-          setDriveContentCache((prev) => ({ ...prev, [selectedLesson.drive_file_id]: updatedHtml }));
-          alert(`✅ Đã lưu trực tiếp nét viết bảng vào file trên Google Drive thành công!`);
-        } else {
-          // Nếu bài cũ chưa có file ID trên Drive thì tạo mới
+        if (choice.trim() === '2') {
+          const newTitleName = window.prompt('Nhập tên cho file bài học HTML mới:', `${selectedLesson.title} (Đã giải)`);
+          if (!newTitleName || !newTitleName.trim()) return;
+
           const newFileId = await uploadToGoogleDrive(
-            `[K${selectedGrade}-${selectedCategory.toUpperCase()}] ${selectedLesson.title}.html`,
+            `[K${selectedGrade}-${selectedCategory.toUpperCase()}] ${newTitleName.trim()}.html`,
             updatedHtml,
             'text/html'
           );
-          await supabase.from('lessons').update({ drive_file_id: newFileId, html_cache: null }).eq('id', selectedLesson.id);
+
+          const { data: inserted, error } = await supabase
+            .from('lessons')
+            .insert([{
+              title: newTitleName.trim(),
+              grade: selectedGrade,
+              category: selectedCategory,
+              drive_file_id: newFileId,
+              html_cache: null,
+              is_active: true,
+              show_answers: selectedLesson.show_answers
+            }])
+            .select()
+            .single();
+
+          if (error) throw error;
           setDriveContentCache((prev) => ({ ...prev, [newFileId]: updatedHtml }));
-          alert(`✅ Đã tạo và lưu file nét viết lên Google Drive thành công!`);
+          alert(`✅ Đã tạo file HTML mới "${newTitleName.trim()}" trên Google Drive kèm toàn bộ nét viết!`);
+          await fetchData();
+          if (inserted) setSelectedLesson(inserted);
+        } else {
+          if (selectedLesson.drive_file_id) {
+            await updateFileOnGoogleDrive(selectedLesson.drive_file_id, updatedHtml);
+            await supabase
+              .from('lessons')
+              .update({ html_cache: null })
+              .eq('id', selectedLesson.id);
+            setDriveContentCache((prev) => ({ ...prev, [selectedLesson.drive_file_id]: updatedHtml }));
+          } else {
+            const newFileId = await uploadToGoogleDrive(
+              `[K${selectedGrade}-${selectedCategory.toUpperCase()}] ${selectedLesson.title}.html`,
+              updatedHtml,
+              'text/html'
+            );
+            await supabase
+              .from('lessons')
+              .update({ drive_file_id: newFileId, html_cache: null })
+              .eq('id', selectedLesson.id);
+            setDriveContentCache((prev) => ({ ...prev, [newFileId]: updatedHtml }));
+          }
+          alert(`✅ Đã ghi đè nét viết vào thẳng lõi file HTML "${selectedLesson.title}" trên Google Drive!`);
         }
-        await fetchData();
       } catch (err) {
-        alert('Lỗi lưu nét viết lên Google Drive: ' + err.message);
+        alert('Lỗi khi lưu lên Google Drive: ' + err.message);
       }
     };
 
