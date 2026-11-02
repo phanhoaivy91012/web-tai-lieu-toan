@@ -7,7 +7,8 @@ import {
   Download, FileUp, CheckCircle2, Layers
 } from 'lucide-react';
 
-const GRADES = [10, 11, 12];
+const GRADES = [10, 11, 12, 0];
+const formatGradeLabel = (g, short = false) => (g === 0 ? 'Khác' : short ? `K${g}` : `Khối ${g}`);
 
 // ============================================================================
 // 1. ENGINE BẢNG VẼ CHUYÊN DỤNG CHO MÁY TÍNH BẢNG (CHỐNG TRÔI TRANG & TÌ TAY)
@@ -2232,7 +2233,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                         selectedGrade === g ? 'bg-indigo-500 text-white shadow' : 'text-slate-300 hover:bg-slate-700'
                       }`}
                     >
-                      K{g}
+                      {g === 0 ? '📂 Khác' : `K${g}`}
                     </button>
                   ))}
                 </div>
@@ -2243,7 +2244,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 <span className={`px-2 py-0.5 rounded font-extrabold ${
                   currentStudent.category === 'school' ? 'bg-sky-500 text-slate-950' : 'bg-amber-500 text-slate-950'
                 }`}>
-                  {currentStudent.category === 'school' ? '🏫 Hệ Trường' : '🏠 Hệ Nhà'} • Khối {currentStudent.grade}
+                  {currentStudent.category === 'school' ? '🏫 Hệ Trường' : '🏠 Hệ Nhà'} • {formatGradeLabel(currentStudent.grade)}
                 </span>
                 <span className="font-bold text-white">
                   [{currentStudent.student_code}] {currentStudent.full_name} ({currentStudent.class_name})
