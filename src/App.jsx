@@ -47,13 +47,13 @@ const TABLET_PRO_DRAWING_INJECTION = `
   }
   .tb-quick-btn {
     width: 40px;
-    height: 40px;
+    height: 38px;
     border-radius: 10px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     color: #e2e8f0;
     background: #1e293b;
@@ -66,6 +66,11 @@ const TABLET_PRO_DRAWING_INJECTION = `
     color: #ffffff !important;
     border-color: #60a5fa !important;
   }
+  .tb-quick-btn.save-btn {
+    background: #059669 !important;
+    color: #ffffff !important;
+    border-color: #34d399 !important;
+  }
   .tb-quick-btn span.lbl {
     font-size: 8px;
     line-height: 1;
@@ -75,75 +80,102 @@ const TABLET_PRO_DRAWING_INJECTION = `
 </style>
 <script>
   window.addEventListener('load', function() {
-    const canvas = document.getElementById('drawing-canvas');
-    const scrollBox = document.getElementById('slide-content-scroll');
+    var canvas = document.getElementById('drawing-canvas');
+    var scrollBox = document.getElementById('slide-content-scroll');
     if (!canvas || !scrollBox) return;
 
     window.palmRejectionOnlyPen = false;
+    var storageKey = 'vy_drawings_' + (document.title || 'default');
+
+    // Khôi phục nét viết đã nhúng trong file HTML trên Drive (hoặc bộ nhớ máy)
+    try {
+      if (window.SAVED_SLIDE_DRAWINGS && Array.isArray(window.SAVED_SLIDE_DRAWINGS) && typeof slideDrawings !== 'undefined') {
+        for (var i = 0; i < Math.min(slideDrawings.length, window.SAVED_SLIDE_DRAWINGS.length); i++) {
+          slideDrawings[i] = window.SAVED_SLIDE_DRAWINGS[i] || [];
+        }
+      }
+      var localBackup = localStorage.getItem(storageKey);
+      if (localBackup && typeof slideDrawings !== 'undefined') {
+        var parsed = JSON.parse(localBackup);
+        if (Array.isArray(parsed)) {
+          for (var j = 0; j < Math.min(slideDrawings.length, parsed.length); j++) {
+            if (parsed[j] && parsed[j].length > 0) slideDrawings[j] = parsed[j];
+          }
+        }
+      }
+      if (typeof redrawCanvas === 'function') setTimeout(redrawCanvas, 80);
+    } catch (e) {}
+
+    var autoBackupLocal = function() {
+      try {
+        if (typeof slideDrawings !== 'undefined') {
+          localStorage.setItem(storageKey, JSON.stringify(slideDrawings));
+        }
+      } catch (e) {}
+    };
+    canvas.addEventListener('pointerup', autoBackupLocal);
 
     if (!document.getElementById('tablet-quick-helper')) {
-      const helper = document.createElement('div');
+      var helper = document.createElement('div');
       helper.id = 'tablet-quick-helper';
-      helper.innerHTML = \`
-        <button id="qbtn-pen" class="tb-quick-btn" title="Bút viết bảng">
-          <span>✏️</span><span class="lbl">Bút</span>
-        </button>
-        <button id="qbtn-eraser" class="tb-quick-btn" title="Tẩy nét">
-          <span>🧹</span><span class="lbl">Tẩy</span>
-        </button>
-        <button id="qbtn-cursor" class="tb-quick-btn active-mode" title="Chế độ Cuộn trang & Bấm nút">
-          <span>👆</span><span class="lbl">Cuộn</span>
-        </button>
-        <button id="qbtn-palm" class="tb-quick-btn" title="Chống tì tay (Chỉ nhận Bút cảm ứng)">
-          <span>✋</span><span class="lbl">Chỉ Bút</span>
-        </button>
-        <div style="height:1px;background:#334155;margin:2px 0;"></div>
-        <button id="qbtn-up" class="tb-quick-btn" title="Cuộn lên">
-          <span>▲</span><span class="lbl">Lên</span>
-        </button>
-        <button id="qbtn-down" class="tb-quick-btn" title="Cuộn xuống viết tiếp">
-          <span>▼</span><span class="lbl">Xuống</span>
-        </button>
-        <button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác">
-          <span>↩️</span><span class="lbl">Lùi</span>
-        </button>
-      \`;
+      helper.innerHTML =
+        '<button id="qbtn-pen" class="tb-quick-btn" title="Bút viết bảng"><span>✏️</span><span class="lbl">Bút</span></button>' +
+        '<button id="qbtn-eraser" class="tb-quick-btn" title="Tẩy nét"><span>🧹</span><span class="lbl">Tẩy</span></button>' +
+        '<button id="qbtn-cursor" class="tb-quick-btn active-mode" title="Chế độ Cuộn trang & Bấm nút"><span>👆</span><span class="lbl">Cuộn</span></button>' +
+        '<button id="qbtn-palm" class="tb-quick-btn" title="Chống tì tay (Chỉ nhận Bút cảm ứng)"><span>✋</span><span class="lbl">Chỉ Bút</span></button>' +
+        '<div style="height:1px;background:#334155;margin:2px 0;"></div>' +
+        '<button id="qbtn-up" class="tb-quick-btn" title="Cuộn lên"><span>▲</span><span class="lbl">Lên</span></button>' +
+        '<button id="qbtn-down" class="tb-quick-btn" title="Cuộn xuống viết tiếp"><span>▼</span><span class="lbl">Xuống</span></button>' +
+        '<button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác"><span>↩️</span><span class="lbl">Lùi</span></button>' +
+        '<div style="height:1px;background:#334155;margin:2px 0;"></div>' +
+        '<button id="qbtn-save" class="tb-quick-btn save-btn" title="Lưu nét viết lên Google Drive"><span>💾</span><span class="lbl">Lưu</span></button>';
       document.body.appendChild(helper);
 
-      const syncQuickHighlight = (tool) => {
-        ['pen', 'eraser', 'cursor'].forEach(t => {
-          const btn = document.getElementById('qbtn-' + t);
+      var syncQuickHighlight = function(tool) {
+        ['pen', 'eraser', 'cursor'].forEach(function(t) {
+          var btn = document.getElementById('qbtn-' + t);
           if (btn) btn.classList.toggle('active-mode', t === tool);
         });
       };
 
       if (typeof window.setDrawTool === 'function') {
-        const origSetDrawTool = window.setDrawTool;
+        var origSetDrawTool = window.setDrawTool;
         window.setDrawTool = function(t) {
           origSetDrawTool(t);
           syncQuickHighlight(t);
         };
       }
 
-      document.getElementById('qbtn-pen').onclick = () => {
-        const bar = document.getElementById('drawing-toolbar');
+      document.getElementById('qbtn-pen').onclick = function() {
+        var bar = document.getElementById('drawing-toolbar');
         if (bar && bar.classList.contains('hidden')) bar.classList.replace('hidden', 'flex');
         if (typeof window.setDrawTool === 'function') window.setDrawTool('pen');
       };
-      document.getElementById('qbtn-eraser').onclick = () => {
+      document.getElementById('qbtn-eraser').onclick = function() {
         if (typeof window.setDrawTool === 'function') window.setDrawTool('eraser');
       };
-      document.getElementById('qbtn-cursor').onclick = () => {
+      document.getElementById('qbtn-cursor').onclick = function() {
         if (typeof window.setDrawTool === 'function') window.setDrawTool('cursor');
       };
       document.getElementById('qbtn-palm').onclick = function() {
         window.palmRejectionOnlyPen = !window.palmRejectionOnlyPen;
         this.classList.toggle('active-mode', window.palmRejectionOnlyPen);
       };
-      document.getElementById('qbtn-up').onclick = () => scrollBox.scrollBy({ top: -220, behavior: 'smooth' });
-      document.getElementById('qbtn-down').onclick = () => scrollBox.scrollBy({ top: 220, behavior: 'smooth' });
-      document.getElementById('qbtn-undo').onclick = () => {
-        if (typeof window.undoLastStroke === 'function') window.undoLastStroke();
+      document.getElementById('qbtn-up').onclick = function() { scrollBox.scrollBy({ top: -220, behavior: 'smooth' }); };
+      document.getElementById('qbtn-down').onclick = function() { scrollBox.scrollBy({ top: 220, behavior: 'smooth' }); };
+      document.getElementById('qbtn-undo').onclick = function() {
+        if (typeof window.undoLastStroke === 'function') {
+          window.undoLastStroke();
+          autoBackupLocal();
+        }
+      };
+      document.getElementById('qbtn-save').onclick = function() {
+        if (typeof slideDrawings === 'undefined') return;
+        autoBackupLocal();
+        window.parent.postMessage({
+          type: 'VY_SAVE_SLIDE_DRAWINGS',
+          drawings: slideDrawings
+        }, '*');
       };
     }
 
@@ -168,7 +200,7 @@ const TABLET_PRO_DRAWING_INJECTION = `
     canvas.addEventListener('pointerdown', function(e) {
       if (e.pointerType === 'pen' && !window.palmRejectionOnlyPen) {
         window.palmRejectionOnlyPen = true;
-        const palmBtn = document.getElementById('qbtn-palm');
+        var palmBtn = document.getElementById('qbtn-palm');
         if (palmBtn) palmBtn.classList.add('active-mode');
       }
       if (window.palmRejectionOnlyPen && e.pointerType === 'touch') {
@@ -186,6 +218,10 @@ const TABLET_PRO_DRAWING_INJECTION = `
   });
 </script>
 `;
+
+function cleanBrokenVietnamesePdfText(str) {
+  return str || '';
+}
 
 // ============================================================================
 // 2. BỘ PHÂN TÍCH TỰ ĐỘNG (AUTO-PARSER) NHẬN DIỆN ĐỦ 4 DẠNG TỪ PDF / VĂN BẢN
@@ -1349,23 +1385,62 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
 // DÁN LINK GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY:
   const GAS_DRIVE_URL = 'https://script.google.com/macros/s/AKfycbxfN16PRs1KoS9JHW6-HR-EQZW9qgH6BpPJtmSpa-a3ZKaZuGwi2xlEw_ppZzfAsBMT/exec';
 
-  // Bộ nhớ tạm trên trình duyệt giúp mở lại bài đã xem trong 0 giây mà không tốn Supabase
   const [driveContentCache, setDriveContentCache] = useState({});
   const [isLoadingDriveFile, setIsLoadingDriveFile] = useState(false);
 
-  // Hàm đẩy file (HTML, PDF, Word, JSON Bài tập) thẳng lên Google Drive
+  // 1. Tạo file mới trên Google Drive
   const uploadToGoogleDrive = async (fileName, content, mimeType = 'text/html', isBase64 = false) => {
     const res = await fetch(GAS_DRIVE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ fileName, content, mimeType, isBase64 })
+      body: JSON.stringify({ action: 'create', fileName, content, mimeType, isBase64 })
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Lỗi lưu file lên Google Drive');
     return data.fileId;
   };
 
-  // Hàm đọc nội dung HTML / Bài tập từ Google Drive về Web
+  // 2. Can thiệp sửa (ghi đè) trực tiếp file HTML trên Google Drive
+  const updateFileOnGoogleDrive = async (fileId, content, fileName = null) => {
+    const res = await fetch(GAS_DRIVE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'update', fileId, content, fileName })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Lỗi cập nhật file trên Google Drive');
+    return data.fileId;
+  };
+
+  // 3. Đổi tên file trên Google Drive
+  const renameFileOnGoogleDrive = async (fileId, newName) => {
+    if (!fileId) return;
+    try {
+      await fetch(GAS_DRIVE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'rename', fileId, newName })
+      });
+    } catch (e) {
+      console.error('Lỗi đổi tên trên Drive:', e);
+    }
+  };
+
+  // 4. Xóa file trên Google Drive
+  const deleteFileOnGoogleDrive = async (fileId) => {
+    if (!fileId) return;
+    try {
+      await fetch(GAS_DRIVE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'delete', fileId })
+      });
+    } catch (e) {
+      console.error('Lỗi xóa file trên Drive:', e);
+    }
+  };
+
+  // 5. Đọc nội dung HTML / Bài tập từ Google Drive về Web
   const fetchFromGoogleDrive = async (fileId) => {
     if (!fileId) return '';
     if (driveContentCache[fileId]) return driveContentCache[fileId];
@@ -1385,12 +1460,126 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     return '';
   };
 
-  // Tự động hút nội dung HTML từ Google Drive khi chọn bài học ở Tab 1
   useEffect(() => {
     if (selectedLesson && !selectedLesson.html_cache && selectedLesson.drive_file_id) {
       fetchFromGoogleDrive(selectedLesson.drive_file_id);
     }
   }, [selectedLesson]);
+
+  // 6. Nhận nét viết khi bấm nút "💾 Lưu" trên bảng vẽ -> Sửa thẳng HTML trên Drive hoặc Tạo file HTML khác
+  useEffect(() => {
+    const handleMessageFromIframe = async (event) => {
+      if (!event.data || event.data.type !== 'VY_SAVE_SLIDE_DRAWINGS') return;
+      if (!isTeacher) return alert('Đã lưu nháp nét viết trên thiết bị của em!');
+      if (!selectedLesson) return;
+
+      const drawingsData = event.data.drawings;
+      const rawHtml = selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id] || '';
+      if (!rawHtml) return alert('Không tìm thấy nội dung HTML để lưu!');
+
+      const openTag = '<scr' + 'ipt id="vy-saved-drawings">';
+      const closeTag = '</scr' + 'ipt>';
+      const embeddedScript = openTag + 'window.SAVED_SLIDE_DRAWINGS = ' + JSON.stringify(drawingsData) + ';' + closeTag;
+      const regexOld = new RegExp(openTag + '[\\s\\S]*?' + closeTag, 'g');
+
+      let updatedHtml = rawHtml.replace(regexOld, '');
+      if (updatedHtml.includes('</head>')) {
+        updatedHtml = updatedHtml.replace('</head>', embeddedScript + '</head>');
+      } else {
+        updatedHtml = embeddedScript + updatedHtml;
+      }
+
+      const choice = window.prompt(
+        `💾 LƯU NÉT VIẾT VÀO FILE HTML TRÊN GOOGLE DRIVE:\n\n` +
+        `• Nhập 1: Lưu đè trực tiếp vào file HTML "${selectedLesson.title}" trên Drive.\n` +
+        `• Nhập 2: Lưu thành một file HTML mới khác trên Drive.`,
+        '1'
+      );
+      if (!choice) return;
+
+      try {
+        if (choice.trim() === '2') {
+          const newTitleName = window.prompt('Nhập tên cho file bài học HTML mới:', `${selectedLesson.title} (Bản viết bảng)`);
+          if (!newTitleName || !newTitleName.trim()) return;
+
+          const newFileId = await uploadToGoogleDrive(
+            `[K${selectedGrade}-${selectedCategory.toUpperCase()}] ${newTitleName.trim()}.html`,
+            updatedHtml,
+            'text/html'
+          );
+
+          const { data: inserted, error } = await supabase
+            .from('lessons')
+            .insert([{
+              title: newTitleName.trim(),
+              grade: selectedGrade,
+              category: selectedCategory,
+              drive_file_id: newFileId,
+              html_cache: null,
+              is_active: true,
+              show_answers: selectedLesson.show_answers
+            }])
+            .select()
+            .single();
+
+          if (error) throw error;
+          setDriveContentCache((prev) => ({ ...prev, [newFileId]: updatedHtml }));
+          alert(`✅ Đã lưu thành file HTML mới "${newTitleName.trim()}" trên Google Drive!`);
+          await fetchData();
+          if (inserted) setSelectedLesson(inserted);
+        } else {
+          if (selectedLesson.drive_file_id) {
+            await updateFileOnGoogleDrive(selectedLesson.drive_file_id, updatedHtml);
+            setDriveContentCache((prev) => ({ ...prev, [selectedLesson.drive_file_id]: updatedHtml }));
+          } else {
+            const newFileId = await uploadToGoogleDrive(
+              `[K${selectedGrade}-${selectedCategory.toUpperCase()}] ${selectedLesson.title}.html`,
+              updatedHtml,
+              'text/html'
+            );
+            await supabase.from('lessons').update({ drive_file_id: newFileId, html_cache: null }).eq('id', selectedLesson.id);
+            setDriveContentCache((prev) => ({ ...prev, [newFileId]: updatedHtml }));
+          }
+          alert(`✅ Đã can thiệp và lưu nét viết trực tiếp vào file HTML "${selectedLesson.title}" trên Google Drive!`);
+        }
+      } catch (err) {
+        alert('Lỗi khi lưu lên Google Drive: ' + err.message);
+      }
+    };
+
+    window.addEventListener('message', handleMessageFromIframe);
+    return () => window.removeEventListener('message', handleMessageFromIframe);
+  }, [selectedLesson, driveContentCache, isTeacher, selectedGrade, selectedCategory]);
+
+  // 7. Hàm Đổi tên & Xóa đồng bộ trên cả Web và Google Drive
+  const handleRenameItemSyncDrive = async (table, item, ext = '.html') => {
+    const newName = window.prompt(`Nhập tên mới cho "${item.title}":`, item.title);
+    if (!newName || !newName.trim() || newName.trim() === item.title) return;
+    const cleanName = newName.trim();
+
+    const { error } = await supabase.from(table).update({ title: cleanName }).eq('id', item.id);
+    if (error) return alert('Lỗi đổi tên: ' + error.message);
+
+    if (item.drive_file_id) {
+      await renameFileOnGoogleDrive(
+        item.drive_file_id,
+        `[K${item.grade}-${(item.category || 'home').toUpperCase()}] ${cleanName}${ext}`
+      );
+    }
+    if (selectedLesson?.id === item.id) {
+      setSelectedLesson({ ...selectedLesson, title: cleanName });
+    }
+    fetchData();
+  };
+
+  const handleDeleteItemSyncDrive = async (table, item) => {
+    if (!window.confirm(`Xóa "${item.title}" trên Web VÀ xóa luôn file trên Google Drive?`)) return;
+    if (item.drive_file_id) {
+      await deleteFileOnGoogleDrive(item.drive_file_id);
+    }
+    await supabase.from(table).delete().eq('id', item.id);
+    fetchData();
+  };
   
   // ================= AI VISION: CHUYỂN TỪ ẢNH & PDF SANG LATEX + HÌNH VẼ SVG =================
   const convertImagesWithGeminiVision = async (base64Images, appendMode = false) => {
@@ -1563,24 +1752,37 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
   const handleSaveConvertedToLessons = async () => {
     if (!converterTitle.trim()) return alert('Vui lòng nhập Tên bài giảng trước khi lưu!');
-    const fullHtml = buildFullStandaloneHTML(converterTitle, selectedGrade, parsedPreviewSlides);
-    const { error } = await supabase.from('lessons').insert([{
-      title: converterTitle.trim(),
-      grade: selectedGrade,
-      category: uploadCategory,
-      drive_file_id: '',
-      html_cache: fullHtml,
-      is_active: true,
-      show_answers: false
-    }]);
+    setIsExtractingPdf(true);
+    setAiStatusText('Đang lưu file HTML lên Google Drive...');
+    try {
+      const fullHtml = buildFullStandaloneHTML(converterTitle, selectedGrade, parsedPreviewSlides);
+      const driveFileId = await uploadToGoogleDrive(
+        `[K${selectedGrade}-${uploadCategory.toUpperCase()}] ${converterTitle.trim()}.html`,
+        fullHtml,
+        'text/html'
+      );
 
-    if (error) {
-      alert('Lỗi lưu bài giảng: ' + error.message);
-    } else {
+      const { error } = await supabase.from('lessons').insert([{
+        title: converterTitle.trim(),
+        grade: selectedGrade,
+        category: uploadCategory,
+        drive_file_id: driveFileId,
+        html_cache: null,
+        is_active: true,
+        show_answers: false
+      }]);
+
+      if (error) throw error;
+      setDriveContentCache((prev) => ({ ...prev, [driveFileId]: fullHtml }));
       setSelectedCategory(uploadCategory);
-      alert(`Đã lưu ${parsedPreviewSlides.length} Slide vào [${uploadCategory === 'school' ? 'LỚP TRƯỜNG' : 'LỚP NHÀ'} - Khối ${selectedGrade}]!`);
+      alert(`Đã lưu ${parsedPreviewSlides.length} Slide lên Google Drive thành công!`);
       await fetchData();
       setActiveTab('lessons');
+    } catch (err) {
+      alert('Lỗi lưu bài giảng lên Drive: ' + err.message);
+    } finally {
+      setIsExtractingPdf(false);
+      setAiStatusText('');
     }
   };
 
@@ -2134,17 +2336,22 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                             {item.show_answers ? 'Đáp án: BẬT' : 'Đáp án: TẮT'}
                           </button>
 
-                          <button
-                            onClick={async () => {
-                              if (window.confirm('Xóa bài học này?')) {
-                                await supabase.from('lessons').delete().eq('id', item.id);
-                                fetchData();
-                              }
-                            }}
-                            className="text-rose-400 hover:bg-rose-950 p-1 rounded"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleRenameItemSyncDrive('lessons', item, '.html')}
+                              className="text-sky-400 hover:bg-sky-950 px-1.5 py-0.5 rounded font-bold"
+                              title="Đổi tên bài học trên Web & Google Drive"
+                            >
+                              ✏️ Sửa tên
+                            </button>
+                            <button
+                              onClick={() => handleDeleteItemSyncDrive('lessons', item)}
+                              className="text-rose-400 hover:bg-rose-950 p-1 rounded"
+                              title="Xóa bài học trên Web & Google Drive"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
