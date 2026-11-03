@@ -956,6 +956,221 @@ function convertTikzPlotToSvg(tikzCode) {
 }
 
 // 3. Làm sạch & chuyển đổi môi trường LaTeX sang HTML + KaTeX
+
+// Giải mã trực tiếp file ảnh WMF / OLE của MathType trong Word sang LaTeX hoặc Vector SVG (Không cần API Key)
+function decodeMathTypeFromWordBinary(wmfUint8, oleUint8) {
+  // 1. Thử trích xuất chuỗi TeX / Ký hiệu Toán nếu MathType có lưu kèm trong luồng nhị phân
+  const extractPrintableMath = (bytes) => {
+    if (!bytes) return '';
+    let raw = '';
+    for (let i = 0; i < bytes.length; i++) {
+      const c = bytes[i];
+      if (c >= 32 && c <= 126) raw += String.fromCharCode(c);
+      else raw += ' ';
+    }
+    // Tìm nếu trong luồng có sẵn biểu thức TeX $...$ hoặc \[...\]
+    const texMatch = raw.match(/\$([^\$]{1,120})\$/);
+    if (texMatch) return `$${texMatch[1]}$`;
+    return '';
+  };
+
+  const embeddedTex = extractPrintableMath(oleUint8) || extractPrintableMath(wmfUint8);
+  if (embeddedTex) return embeddedTex;
+
+  // 2. Đọc trực tiếp các bản ghi chữ & ký hiệu Toán học (WMF META_EXTTEXTOUT / META_TEXTOUT) trong file .wmf
+  if (!wmfUint8 || wmfUint8.length < 22) return '';
+  const view = new DataView(wmfUint8.buffer, wmfUint8.byteOffset, wmfUint8.byteLength);
+
+  let offset = 0;
+  let bboxLeft = 0, bboxTop = 0, bboxRight = 1200, bboxBottom = 400;
+
+  // Kiểm tra Aldus Placeable WMF Header (0x9AC6CDD7) để lấy đúng kích thước khung công thức
+  if (view.getUint32(0, true) === 0x9AC6CDD7) {
+    bboxLeft = view.getInt16(6, true);
+    bboxTop = view.getInt16(8, true);
+    bboxRight = view.getInt16(10, true);
+    bboxBottom = view.getInt16(12, true);
+    offset = 22;
+  }
+
+  // Bỏ qua Standard WMF Header (18 bytes)
+  if (offset + 18 <= wmfUint8.length) {
+    offset += 18;
+  }
+
+  // Bảng quy đổi ký hiệu Symbol của MathType sang Unicode Toán học chuẩn
+  const symbolCharMap = {
+    0x22: '∀', 0x24: '∃', 0x27: '∋', 0x2A: '*', 0x2D: '−',
+    0x40: '≅', 0x41: 'Α', 0x42: 'Β', 0x43: 'Χ', 0x44: 'Δ',
+    0x45: 'Ε', 0x46: 'Φ', 0x47: 'Γ', 0x48: 'Η', 0x49: 'Ι',
+    0x4B: 'Κ', 0x4C: 'Λ', 0x4D: 'Μ', 0x4E: 'Ν', 0x4F: 'Ο',
+    0x50: 'Π', 0x51: 'Θ', 0x52: 'Ρ', 0x53: 'Σ', 0x54: 'Τ',
+    0x55: 'Υ', 0x57: 'Ω', 0x58: 'Ξ', 0x59: 'Ψ', 0x5A: 'Ζ',
+    0x5C: '∴', 0x5E: '⊥', 0x61: 'α', 0x62: 'β', 0x63: 'χ',
+    0x64: 'δ', 0x65: 'ε', 0x66: 'φ', 0x67: 'γ', 0x68: 'η',
+    0x69: 'ι', 0x6A: 'ϕ', 0x6B: 'κ', 0x6C: 'λ', 0x6D: 'μ',
+    0x6E: 'ν', 0x6F: 'ο', 0x70: 'π', 0x71: 'θ', 0x72: 'ρ',
+    0x73: 'σ', 0x74: 'τ', 0x75: 'υ', 0x76: 'ϖ', 0x77: 'ω',
+    0x78: 'ξ', 0x79: 'ψ', 0x7A: 'ζ', 0x7E: '∼',
+    0xA3: '≤', 0xA5: '∞', 0xB0: '°', 0xB1: '±', 0xB2: '″',
+    0xB3: '≥', 0xB4: '×', 0xB5: '∝', 0xB6: '∂', 0xB7: '•',
+    0xB8: '÷', 0xB9: '≠', 0xBA: '≡', 0xBB: '≈', 0xC4: '⊗',
+    0xC5: '⊕', 0xC6: '∅', 0xC7: '∩', 0xC8: '∪', 0xCC: '⊂',
+    0xCD: '⊆', 0xCE: '∈', 0xCF: '∉', 0xD0: '∠', 0xD1: '∇',
+    0xD6: '√', 0xD7: '⋅', 0xD9: '∧', 0xDA: '∨', 0xDB: '⇔',
+    0xDC: '⇐', 0xDD: '⇑', 0xDE: '⇒', 0xDF: '⇓', 0xE5: '∑',
+    0xAC: '←', 0xAD: '↑', 0xAE: '→', 0xAF: '↓', 0xF2: '∫'
+  };
+
+  let isSymbolFont = false;
+  const textItems = [];
+  const lineItems = [];
+  let winOrgX = bboxLeft, winOrgY = bboxTop;
+  let winExtX = Math.max(1, bboxRight - bboxLeft);
+  let winExtY = Math.max(1, bboxBottom - bboxTop);
+  let curX = 0, curY = 0;
+
+  while (offset + 6 <= wmfUint8.length) {
+    const sizeWords = view.getUint32(offset, true);
+    const func = view.getUint16(offset + 4, true);
+    const sizeBytes = sizeWords * 2;
+    if (sizeBytes < 6 || offset + sizeBytes > wmfUint8.length) break;
+
+    // META_SETWINDOWORG
+    if (func === 0x020B && sizeBytes >= 10) {
+      winOrgY = view.getInt16(offset + 6, true);
+      winOrgX = view.getInt16(offset + 8, true);
+    }
+    // META_SETWINDOWEXT
+    else if (func === 0x020C && sizeBytes >= 10) {
+      winExtY = Math.abs(view.getInt16(offset + 6, true)) || winExtY;
+      winExtX = Math.abs(view.getInt16(offset + 8, true)) || winExtX;
+    }
+    // META_CREATEFONTINDIRECT (Kiểm tra xem font hiện tại có phải Symbol hay không)
+    else if (func === 0x02FB && sizeBytes >= 24) {
+      const charSet = wmfUint8[offset + 6 + 13];
+      let faceName = '';
+      for (let k = offset + 6 + 18; k < offset + sizeBytes && wmfUint8[k] !== 0; k++) {
+        faceName += String.fromCharCode(wmfUint8[k]);
+      }
+      isSymbolFont = charSet === 2 || /symbol|mt extra|euclid/i.test(faceName);
+    }
+    // META_MOVETO
+    else if (func === 0x0214 && sizeBytes >= 10) {
+      curY = view.getInt16(offset + 6, true);
+      curX = view.getInt16(offset + 8, true);
+    }
+    // META_LINETO (Đường kẻ phân số / căn thức / bảng)
+    else if (func === 0x0213 && sizeBytes >= 10) {
+      const ny = view.getInt16(offset + 6, true);
+      const nx = view.getInt16(offset + 8, true);
+      lineItems.push({ x1: curX, y1: curY, x2: nx, y2: ny });
+      curX = nx; curY = ny;
+    }
+    // META_POLYLINE / META_POLYGON (Dấu căn, mũi tên vectơ, ngoặc)
+    else if ((func === 0x0325 || func === 0x0324) && sizeBytes >= 10) {
+      const count = view.getInt16(offset + 6, true);
+      let pOff = offset + 8;
+      const pts = [];
+      for (let p = 0; p < count && pOff + 4 <= offset + sizeBytes; p++) {
+        const px = view.getInt16(pOff, true);
+        const py = view.getInt16(pOff + 2, true);
+        pts.push({ x: px, y: py });
+        pOff += 4;
+      }
+      for (let p = 0; p < pts.length - 1; p++) {
+        lineItems.push({ x1: pts[p].x, y1: pts[p].y, x2: pts[p + 1].x, y2: pts[p + 1].y });
+      }
+    }
+    // META_EXTTEXTOUT (0x0A32) - Bản ghi chứa các chữ số và ký hiệu của MathType
+    else if (func === 0x0A32 && sizeBytes >= 14) {
+      const ty = view.getInt16(offset + 6, true);
+      const tx = view.getInt16(offset + 8, true);
+      const strLen = view.getInt16(offset + 10, true);
+      const fwOpts = view.getUint16(offset + 12, true);
+      const strStart = offset + 14 + ((fwOpts & 0x0006) ? 8 : 0);
+
+      let str = '';
+      for (let c = 0; c < strLen && strStart + c < offset + sizeBytes; c++) {
+        const code = wmfUint8[strStart + c];
+        if (isSymbolFont && symbolCharMap[code]) {
+          str += symbolCharMap[code];
+        } else if (code >= 32) {
+          str += String.fromCharCode(code);
+        }
+      }
+      if (str.trim()) {
+        textItems.push({ x: tx, y: ty, text: str });
+      }
+    }
+    // META_TEXTOUT (0x0521)
+    else if (func === 0x0521 && sizeBytes >= 12) {
+      const strLen = view.getInt16(offset + 6, true);
+      const strStart = offset + 8;
+      let str = '';
+      for (let c = 0; c < strLen && strStart + c < offset + sizeBytes; c++) {
+        const code = wmfUint8[strStart + c];
+        str += (isSymbolFont && symbolCharMap[code]) ? symbolCharMap[code] : String.fromCharCode(code);
+      }
+      const afterStr = strStart + strLen + (strLen % 2);
+      if (afterStr + 4 <= offset + sizeBytes && str.trim()) {
+        const ty = view.getInt16(afterStr, true);
+        const tx = view.getInt16(afterStr + 2, true);
+        textItems.push({ x: tx, y: ty, text: str });
+      }
+    }
+
+    if (func === 0x0000) break; // META_EOF
+    offset += sizeBytes;
+  }
+
+  if (textItems.length === 0 && lineItems.length === 0) return '';
+
+  // Nếu chỉ là biểu thức 1 dòng đơn giản -> Trả về dạng công thức Toán KaTeX mượt mà
+  if (lineItems.length === 0 && textItems.length > 0) {
+    textItems.sort((a, b) => a.x - b.x);
+    const merged = textItems.map((t) => t.text).join('');
+    return `$${merged}$`;
+  }
+
+  // Nếu có phân số, căn thức, vectơ hoặc hệ phương trình -> Dựng thành thẻ <svg> inline sắc nét ngay trên dòng chữ
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  textItems.forEach((t) => {
+    if (t.x < minX) minX = t.x;
+    if (t.y < minY) minY = t.y;
+    if (t.x + t.text.length * 140 > maxX) maxX = t.x + t.text.length * 140;
+    if (t.y + 240 > maxY) maxY = t.y + 240;
+  });
+  lineItems.forEach((l) => {
+    minX = Math.min(minX, l.x1, l.x2);
+    minY = Math.min(minY, l.y1, l.y2);
+    maxX = Math.max(maxX, l.x1, l.x2);
+    maxY = Math.max(maxY, l.y1, l.y2);
+  });
+
+  if (!isFinite(minX)) { minX = winOrgX; minY = winOrgY; maxX = winOrgX + winExtX; maxY = winOrgY + winExtY; }
+  const pad = 60;
+  const vbX = minX - pad;
+  const vbY = minY - pad;
+  const vbW = Math.max(200, maxX - minX + pad * 2);
+  const vbH = Math.max(160, maxY - minY + pad * 2);
+  const displayH = Math.min(54, Math.max(22, Math.round(vbH / 16)));
+
+  const svgLines = lineItems
+    .map((l) => `<line x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke="#0f172a" stroke-width="${Math.max(12, Math.round(vbH / 28))}" stroke-linecap="round" />`)
+    .join('');
+
+  const fontSize = Math.max(150, Math.round(vbH * 0.42));
+  const svgTexts = textItems
+    .map((t) => {
+      const safeText = t.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<text x="${t.x}" y="${t.y + Math.round(fontSize * 0.82)}" font-family="Times New Roman, serif" font-size="${fontSize}" fill="#0f172a">${safeText}</text>`;
+    })
+    .join('');
+
+  return `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" style="height:${displayH}px; width:auto; display:inline-block; vertical-align:middle; margin:0 2px;" xmlns="http://www.w3.org/2000/svg">${svgLines}${svgTexts}</svg>`;
+}
+
 function cleanLatexToHtmlMath(str) {
   if (!str) return '';
   let s = str;
@@ -2370,7 +2585,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     fetchData();
   };
 
-  // Đọc trực tiếp file .tex hoặc file Word .docx chuẩn Azota (Bắt được cả Auto-numbering Câu 1 & Gạch chân đáp án)
+  // Đọc trực tiếp file .tex hoặc file Word .docx chuẩn Azota ngay trên trình duyệt (Không cần API Key)
   const handleQuizFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2389,142 +2604,104 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
       // 2. Nếu là file Word (.docx) chuẩn Azota
       if (fileNameLower.endsWith('.docx')) {
+        if (!window.JSZip) {
+          return alert('Thư viện đọc Word đang khởi tạo, vui lòng bấm chọn lại sau 1 giây!');
+        }
         const arrayBuffer = await file.arrayBuffer();
+        const zip = await window.JSZip.loadAsync(arrayBuffer);
+        const docXmlStr = await zip.file('word/document.xml')?.async('string');
+        const relsXmlStr = await zip.file('word/_rels/document.xml.rels')?.async('string');
 
-        // Ưu tiên dùng JSZip bóc tách trực tiếp word/document.xml để giữ nguyên:
-        // - Đánh số tự động (Câu 1, Câu 2...)
-        // - Gạch chân / Tô màu đỏ đáp án đúng chuẩn Azota (*A, *B, *C, *D)
-        // - Công thức Toán OMML & Ảnh PNG/JPG (Bỏ qua rác MathType x-wmf)
-        if (window.JSZip) {
-          const zip = await window.JSZip.loadAsync(arrayBuffer);
-          const docXmlStr = await zip.file('word/document.xml')?.async('string');
-          const relsXmlStr = await zip.file('word/_rels/document.xml.rels')?.async('string');
+        if (!docXmlStr) return alert('Không đọc được cấu trúc file Word này!');
 
-          if (docXmlStr) {
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(docXmlStr, 'application/xml');
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(docXmlStr, 'application/xml');
 
-            // Đọc danh sách ảnh PNG/JPG thật (Bỏ qua ảnh wmf/emf của MathType gây lỗi)
-            const imageMap = {};
-            let wmfCount = 0;
-            if (relsXmlStr) {
-              const relsDoc = parser.parseFromString(relsXmlStr, 'application/xml');
-              const relNodes = Array.from(relsDoc.getElementsByTagName('Relationship'));
-              for (const rel of relNodes) {
-                const rId = rel.getAttribute('Id');
-                const target = rel.getAttribute('Target') || '';
-                if (/\.(png|jpe?g|gif|webp)$/i.test(target)) {
-                  const cleanPath = target.startsWith('/') ? target.slice(1) : `word/${target.replace(/^(\.\.\/)+/, '')}`;
-                  const imgFile = zip.file(cleanPath);
-                  if (imgFile) {
-                    const b64 = await imgFile.async('base64');
-                    const ext = target.split('.').pop().toLowerCase();
-                    const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
-                    imageMap[rId] = `[IMG:data:${mime};base64,${b64}]`;
-                  }
-                } else if (/\.(wmf|emf)$/i.test(target)) {
-                  wmfCount++;
-                }
+        // Bóc tách toàn bộ Ảnh (PNG/JPG) VÀ Công thức MathType (WMF/EMF) trực tiếp trong trình duyệt
+        const mediaMap = {};
+        if (relsXmlStr) {
+          const relsDoc = parser.parseFromString(relsXmlStr, 'application/xml');
+          const relNodes = Array.from(relsDoc.getElementsByTagName('Relationship'));
+          for (const rel of relNodes) {
+            const rId = rel.getAttribute('Id');
+            const target = rel.getAttribute('Target') || '';
+            const cleanPath = target.startsWith('/') ? target.slice(1) : `word/${target.replace(/^(\.\.\/)+/, '')}`;
+            const zipEntry = zip.file(cleanPath);
+            if (!zipEntry) continue;
+
+            if (/\.(png|jpe?g|gif|webp)$/i.test(target)) {
+              const b64 = await zipEntry.async('base64');
+              const ext = target.split('.').pop().toLowerCase();
+              const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+              mediaMap[rId] = { type: 'image', html: `<img src="data:${mime};base64,${b64}" class="max-h-[220px] w-auto inline-block align-middle my-1 rounded" />` };
+            } else if (/\.(wmf|emf)$/i.test(target)) {
+              const wmfBytes = await zipEntry.async('uint8array');
+              const decodedMath = decodeMathTypeFromWordBinary(wmfBytes, null);
+              if (decodedMath) {
+                mediaMap[rId] = { type: 'math', html: ` ${decodedMath} ` };
               }
             }
-
-            // Duyệt từng đoạn văn <w:p> trong Word
-            const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
-            const extractedLines = [];
-            let autoQuestionCounter = 1;
-
-            for (const p of paragraphs) {
-              const hasNumPr = p.getElementsByTagName('w:numPr').length > 0;
-              let pText = '';
-
-              // Duyệt các nhánh con của đoạn văn
-              const walkNodes = (node) => {
-                if (node.nodeName === 'w:r') {
-                  const rPr = node.getElementsByTagName('w:rPr')[0];
-                  const isUnderlined = rPr && rPr.getElementsByTagName('w:u').length > 0 && rPr.getElementsByTagName('w:u')[0].getAttribute('w:val') !== 'none';
-                  const colorVal = rPr?.getElementsByTagName('w:color')[0]?.getAttribute('w:val') || '';
-                  const isRed = /^(FF0000|C00000|EE0000|DC2626|EF4444)$/i.test(colorVal);
-
-                  let runStr = '';
-                  const tNodes = Array.from(node.getElementsByTagName('w:t'));
-                  tNodes.forEach((t) => { runStr += t.textContent || ''; });
-
-                  // Nếu chữ A. B. C. D. hoặc a) b) c) d) được gạch chân hoặc tô đỏ -> Đánh dấu * đáp án đúng!
-                  if ((isUnderlined || isRed) && /^\s*([A-D][\.\)]|[a-d]\))/.test(runStr)) {
-                    runStr = '*' + runStr.trimStart();
-                  }
-
-                  // Kiểm tra ảnh vẽ (Bảng biến thiên / Đồ thị PNG/JPG)
-                  const blips = Array.from(node.getElementsByTagName('a:blip'));
-                  const vImagedata = Array.from(node.getElementsByTagName('v:imagedata'));
-                  [...blips, ...vImagedata].forEach((imgNode) => {
-                    const rId = imgNode.getAttribute('r:embed') || imgNode.getAttribute('r:id');
-                    if (rId && imageMap[rId]) {
-                      runStr += `\n${imageMap[rId]}\n`;
-                    }
-                  });
-
-                  pText += runStr;
-                } else if (node.nodeName === 'm:oMath' || node.nodeName === 'm:oMathPara') {
-                  // Công thức Equation native của Word
-                  const mathTexts = Array.from(node.getElementsByTagName('m:t')).map((m) => m.textContent).join('');
-                  if (mathTexts) pText += ` $${mathTexts}$ `;
-                } else if (node.childNodes && node.childNodes.length > 0) {
-                  Array.from(node.childNodes).forEach(walkNodes);
-                }
-              };
-
-              walkNodes(p);
-              let cleanLine = pText.replace(/\s+/g, ' ').trim();
-              if (!cleanLine) continue;
-
-              // Nếu dòng dùng Auto-Numbering của Word mà chưa có chữ "Câu X." ở đầu -> Tự động gắn "Câu X."
-              if (
-                hasNumPr &&
-                !/^(Câu\s+\d+|PHẦN\s+[I123V]+|\*?[A-D][\.\)]|\*?[a-d]\)|Lời giải|HD|Đáp án|Bảng đáp án)/i.test(cleanLine)
-              ) {
-                cleanLine = `Câu ${autoQuestionCounter++}. ${cleanLine}`;
-              }
-
-              extractedLines.push(cleanLine);
-            }
-
-            const finalDocText = extractedLines.join('\n');
-            setRawQuizText(finalDocText);
-
-            if (wmfCount > 0) {
-              alert(
-                `⚠️ Lưu ý quan trọng: File Word này có ${wmfCount} công thức gõ bằng MathType cũ (ảnh WMF không hiển thị được trên trình duyệt Web).\n\n` +
-                `👉 Cách xử lý đẹp nhất: Bạn mở file Word này -> Chọn "Save As PDF" (hoặc chụp ảnh đề) rồi bấm nút "🖼️ Quét Ảnh Đề" bên cạnh, hoặc chuyển công thức trong Word sang dạng LaTeX $...$ bằng nút Toggle TeX (Alt + \\) của MathType!`
-              );
-            }
-            return;
           }
         }
 
-        // Dự phòng bằng Mammoth (Đã lọc bỏ hoàn toàn rác image/x-wmf)
-        if (window.mammoth) {
-          const result = await window.mammoth.convertToHtml({ arrayBuffer });
-          let html = result.value || '';
-          let qAuto = 1;
-          // Biến thẻ <li> của danh sách tự động thành Câu 1, Câu 2...
-          html = html.replace(/<li>/gi, () => `\nCâu ${qAuto++}. `);
-          // Chỉ giữ lại ảnh PNG/JPEG thật, xóa sạch ảnh x-wmf của MathType
-          html = html.replace(/<img[^>]+src="([^"]+)"[^>]*>/gi, (_, src) => {
-            if (/^data:image\/(png|jpe?g|gif|webp)/i.test(src)) {
-              return `\n[IMG:${src}]\n`;
+        // Duyệt từng đoạn văn <w:p> trong Word
+        const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+        const extractedLines = [];
+        let autoQuestionCounter = 1;
+
+        for (const p of paragraphs) {
+          const hasNumPr = p.getElementsByTagName('w:numPr').length > 0;
+          let pText = '';
+
+          const walkNodes = (node) => {
+            if (node.nodeName === 'w:r') {
+              const rPr = node.getElementsByTagName('w:rPr')[0];
+              const isUnderlined = rPr && rPr.getElementsByTagName('w:u').length > 0 && rPr.getElementsByTagName('w:u')[0].getAttribute('w:val') !== 'none';
+              const colorVal = rPr?.getElementsByTagName('w:color')[0]?.getAttribute('w:val') || '';
+              const isRed = /^(FF0000|C00000|EE0000|DC2626|EF4444)$/i.test(colorVal);
+
+              let runStr = '';
+              const tNodes = Array.from(node.getElementsByTagName('w:t'));
+              tNodes.forEach((t) => { runStr += t.textContent || ''; });
+
+              if ((isUnderlined || isRed) && /^\s*([A-D][\.\)]|[a-d]\))/.test(runStr)) {
+                runStr = '*' + runStr.trimStart();
+              }
+
+              const blips = Array.from(node.getElementsByTagName('a:blip'));
+              const vImagedata = Array.from(node.getElementsByTagName('v:imagedata'));
+              [...blips, ...vImagedata].forEach((imgNode) => {
+                const rId = imgNode.getAttribute('r:embed') || imgNode.getAttribute('r:id');
+                if (rId && mediaMap[rId]) {
+                  runStr += mediaMap[rId].html;
+                }
+              });
+
+              pText += runStr;
+            } else if (node.nodeName === 'm:oMath' || node.nodeName === 'm:oMathPara') {
+              const mathTexts = Array.from(node.getElementsByTagName('m:t')).map((m) => m.textContent).join('');
+              if (mathTexts) pText += ` $${mathTexts}$ `;
+            } else if (node.childNodes && node.childNodes.length > 0) {
+              Array.from(node.childNodes).forEach(walkNodes);
             }
-            return ' ';
-          });
-          html = html.replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n');
-          html = html.replace(/<br\s*\/?>/gi, '\n');
-          html = html.replace(/<[^>]+>/g, '');
-          const txtArea = document.createElement('textarea');
-          txtArea.innerHTML = html;
-          setRawQuizText(txtArea.value.trim());
+          };
+
+          walkNodes(p);
+          let cleanLine = pText.replace(/[ \t]+/g, ' ').trim();
+          if (!cleanLine) continue;
+
+          // Tự động khôi phục chữ "Câu 1.", "Câu 2." nếu file Word dùng đánh số tự động (Numbering)
+          if (
+            hasNumPr &&
+            !/^(Câu\s+\d+|PHẦN\s+[I123V]+|\*?[A-D][\.\)]|\*?[a-d]\)|Lời giải|HD|Đáp án|Bảng đáp án)/i.test(cleanLine)
+          ) {
+            cleanLine = `Câu ${autoQuestionCounter++}. ${cleanLine}`;
+          }
+
+          extractedLines.push(cleanLine);
         }
-      } else {
-        alert('Vui lòng chọn file .tex, .docx hoặc .txt!');
+
+        setRawQuizText(extractedLines.join('\n'));
       }
     } catch (err) {
       alert('Lỗi đọc file đề thi: ' + err.message);
