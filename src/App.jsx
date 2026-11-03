@@ -2370,7 +2370,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     fetchData();
   };
 
-  // Đọc trực tiếp file .tex hoặc file Word .docx (Azota) thành đề thi chuẩn
+  // Đọc trực tiếp file .tex hoặc file Word .docx chuẩn Azota (Bắt được cả Auto-numbering Câu 1 & Gạch chân đáp án)
   const handleQuizFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2384,23 +2384,145 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       if (fileNameLower.endsWith('.tex') || fileNameLower.endsWith('.txt')) {
         const text = await file.text();
         setRawQuizText(text);
+        return;
       }
-      // 2. Nếu là file Word (.docx) chuẩn Azota (kèm cả hình ảnh/bảng biến thiên trong Word)
-      else if (fileNameLower.endsWith('.docx')) {
-        if (!window.mammoth) {
-          return alert('Thư viện đọc Word đang tải, vui lòng thử lại sau 2 giây!');
-        }
+
+      // 2. Nếu là file Word (.docx) chuẩn Azota
+      if (fileNameLower.endsWith('.docx')) {
         const arrayBuffer = await file.arrayBuffer();
-        const result = await window.mammoth.convertToHtml({ arrayBuffer });
-        // Giữ nguyên thẻ <img> (đồ thị/bảng biến thiên trong Word) chuyển sang cú pháp [IMG:...]
-        let html = result.value || '';
-        html = html.replace(/<img[^>]+src="([^"]+)"[^>]*>/gi, '\n[IMG:$1]\n');
-        html = html.replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n');
-        html = html.replace(/<br\s*\/?>/gi, '\n');
-        html = html.replace(/<[^>]+>/g, '');
-        const txtArea = document.createElement('textarea');
-        txtArea.innerHTML = html;
-        setRawQuizText(txtArea.value.trim());
+
+        // Ưu tiên dùng JSZip bóc tách trực tiếp word/document.xml để giữ nguyên:
+        // - Đánh số tự động (Câu 1, Câu 2...)
+        // - Gạch chân / Tô màu đỏ đáp án đúng chuẩn Azota (*A, *B, *C, *D)
+        // - Công thức Toán OMML & Ảnh PNG/JPG (Bỏ qua rác MathType x-wmf)
+        if (window.JSZip) {
+          const zip = await window.JSZip.loadAsync(arrayBuffer);
+          const docXmlStr = await zip.file('word/document.xml')?.async('string');
+          const relsXmlStr = await zip.file('word/_rels/document.xml.rels')?.async('string');
+
+          if (docXmlStr) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(docXmlStr, 'application/xml');
+
+            // Đọc danh sách ảnh PNG/JPG thật (Bỏ qua ảnh wmf/emf của MathType gây lỗi)
+            const imageMap = {};
+            let wmfCount = 0;
+            if (relsXmlStr) {
+              const relsDoc = parser.parseFromString(relsXmlStr, 'application/xml');
+              const relNodes = Array.from(relsDoc.getElementsByTagName('Relationship'));
+              for (const rel of relNodes) {
+                const rId = rel.getAttribute('Id');
+                const target = rel.getAttribute('Target') || '';
+                if (/\.(png|jpe?g|gif|webp)$/i.test(target)) {
+                  const cleanPath = target.startsWith('/') ? target.slice(1) : `word/${target.replace(/^(\.\.\/)+/, '')}`;
+                  const imgFile = zip.file(cleanPath);
+                  if (imgFile) {
+                    const b64 = await imgFile.async('base64');
+                    const ext = target.split('.').pop().toLowerCase();
+                    const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+                    imageMap[rId] = `[IMG:data:${mime};base64,${b64}]`;
+                  }
+                } else if (/\.(wmf|emf)$/i.test(target)) {
+                  wmfCount++;
+                }
+              }
+            }
+
+            // Duyệt từng đoạn văn <w:p> trong Word
+            const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+            const extractedLines = [];
+            let autoQuestionCounter = 1;
+
+            for (const p of paragraphs) {
+              const hasNumPr = p.getElementsByTagName('w:numPr').length > 0;
+              let pText = '';
+
+              // Duyệt các nhánh con của đoạn văn
+              const walkNodes = (node) => {
+                if (node.nodeName === 'w:r') {
+                  const rPr = node.getElementsByTagName('w:rPr')[0];
+                  const isUnderlined = rPr && rPr.getElementsByTagName('w:u').length > 0 && rPr.getElementsByTagName('w:u')[0].getAttribute('w:val') !== 'none';
+                  const colorVal = rPr?.getElementsByTagName('w:color')[0]?.getAttribute('w:val') || '';
+                  const isRed = /^(FF0000|C00000|EE0000|DC2626|EF4444)$/i.test(colorVal);
+
+                  let runStr = '';
+                  const tNodes = Array.from(node.getElementsByTagName('w:t'));
+                  tNodes.forEach((t) => { runStr += t.textContent || ''; });
+
+                  // Nếu chữ A. B. C. D. hoặc a) b) c) d) được gạch chân hoặc tô đỏ -> Đánh dấu * đáp án đúng!
+                  if ((isUnderlined || isRed) && /^\s*([A-D][\.\)]|[a-d]\))/.test(runStr)) {
+                    runStr = '*' + runStr.trimStart();
+                  }
+
+                  // Kiểm tra ảnh vẽ (Bảng biến thiên / Đồ thị PNG/JPG)
+                  const blips = Array.from(node.getElementsByTagName('a:blip'));
+                  const vImagedata = Array.from(node.getElementsByTagName('v:imagedata'));
+                  [...blips, ...vImagedata].forEach((imgNode) => {
+                    const rId = imgNode.getAttribute('r:embed') || imgNode.getAttribute('r:id');
+                    if (rId && imageMap[rId]) {
+                      runStr += `\n${imageMap[rId]}\n`;
+                    }
+                  });
+
+                  pText += runStr;
+                } else if (node.nodeName === 'm:oMath' || node.nodeName === 'm:oMathPara') {
+                  // Công thức Equation native của Word
+                  const mathTexts = Array.from(node.getElementsByTagName('m:t')).map((m) => m.textContent).join('');
+                  if (mathTexts) pText += ` $${mathTexts}$ `;
+                } else if (node.childNodes && node.childNodes.length > 0) {
+                  Array.from(node.childNodes).forEach(walkNodes);
+                }
+              };
+
+              walkNodes(p);
+              let cleanLine = pText.replace(/\s+/g, ' ').trim();
+              if (!cleanLine) continue;
+
+              // Nếu dòng dùng Auto-Numbering của Word mà chưa có chữ "Câu X." ở đầu -> Tự động gắn "Câu X."
+              if (
+                hasNumPr &&
+                !/^(Câu\s+\d+|PHẦN\s+[I123V]+|\*?[A-D][\.\)]|\*?[a-d]\)|Lời giải|HD|Đáp án|Bảng đáp án)/i.test(cleanLine)
+              ) {
+                cleanLine = `Câu ${autoQuestionCounter++}. ${cleanLine}`;
+              }
+
+              extractedLines.push(cleanLine);
+            }
+
+            const finalDocText = extractedLines.join('\n');
+            setRawQuizText(finalDocText);
+
+            if (wmfCount > 0) {
+              alert(
+                `⚠️ Lưu ý quan trọng: File Word này có ${wmfCount} công thức gõ bằng MathType cũ (ảnh WMF không hiển thị được trên trình duyệt Web).\n\n` +
+                `👉 Cách xử lý đẹp nhất: Bạn mở file Word này -> Chọn "Save As PDF" (hoặc chụp ảnh đề) rồi bấm nút "🖼️ Quét Ảnh Đề" bên cạnh, hoặc chuyển công thức trong Word sang dạng LaTeX $...$ bằng nút Toggle TeX (Alt + \\) của MathType!`
+              );
+            }
+            return;
+          }
+        }
+
+        // Dự phòng bằng Mammoth (Đã lọc bỏ hoàn toàn rác image/x-wmf)
+        if (window.mammoth) {
+          const result = await window.mammoth.convertToHtml({ arrayBuffer });
+          let html = result.value || '';
+          let qAuto = 1;
+          // Biến thẻ <li> của danh sách tự động thành Câu 1, Câu 2...
+          html = html.replace(/<li>/gi, () => `\nCâu ${qAuto++}. `);
+          // Chỉ giữ lại ảnh PNG/JPEG thật, xóa sạch ảnh x-wmf của MathType
+          html = html.replace(/<img[^>]+src="([^"]+)"[^>]*>/gi, (_, src) => {
+            if (/^data:image\/(png|jpe?g|gif|webp)/i.test(src)) {
+              return `\n[IMG:${src}]\n`;
+            }
+            return ' ';
+          });
+          html = html.replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n');
+          html = html.replace(/<br\s*\/?>/gi, '\n');
+          html = html.replace(/<[^>]+>/g, '');
+          const txtArea = document.createElement('textarea');
+          txtArea.innerHTML = html;
+          setRawQuizText(txtArea.value.trim());
+        }
       } else {
         alert('Vui lòng chọn file .tex, .docx hoặc .txt!');
       }
@@ -2410,6 +2532,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       e.target.value = '';
     }
   };
+ 
 
   // Dùng AI Gemini quét ảnh/PDF đề thi có đồ thị & bảng biến thiên sang thẳng bài tập Tab 3
   const handleQuizImageOrPdfUpload = async (e) => {
