@@ -251,11 +251,11 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
     if (!line) continue;
 
     // Nhận diện tiêu đề chuyển Phần (Phần I, Phần II, Phần III, Lý thuyết)
-    if (/^(PHẦN\s*I\b|I\.\s*TRẮC NGHIỆM)/i.test(line) && !/PHẦN\s*II/i.test(line)) {
-      if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
-      currentPart = 'PHẦN I. CÂU TRẮC NGHIỆM';
-      continue;
-    }
+   if (/^(PHẦN\s*(?:I|1)\b|I\.\s*TRẮC NGHIỆM)/i.test(line) && !/PHẦN\s*II/i.test(line)) {
+   if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
+   currentPart = 'PHẦN I. CÂU TRẮC NGHIỆM';
+   continue;
+ }
     if (/^(PHẦN\s*II\b|II\.\s*CÂU TRẮC NGHIỆM ĐÚNG SAI|PHẦN\s*2)/i.test(line) && !/PHẦN\s*III/i.test(line)) {
       if (tempBlock.length) { currentBlocks.push({ part: currentPart, lines: tempBlock }); tempBlock = []; }
       currentPart = 'PHẦN II. CÂU TRẮC NGHIỆM ĐÚNG SAI';
@@ -957,34 +957,15 @@ function convertTikzPlotToSvg(tikzCode) {
 
 // 3. Làm sạch & chuyển đổi môi trường LaTeX sang HTML + KaTeX
 
-// Giải mã trực tiếp file ảnh WMF / OLE của MathType trong Word sang LaTeX hoặc Vector SVG (Không cần API Key)
-function decodeMathTypeFromWordBinary(wmfUint8, oleUint8) {
-  // 1. Thử trích xuất chuỗi TeX / Ký hiệu Toán nếu MathType có lưu kèm trong luồng nhị phân
-  const extractPrintableMath = (bytes) => {
-    if (!bytes) return '';
-    let raw = '';
-    for (let i = 0; i < bytes.length; i++) {
-      const c = bytes[i];
-      if (c >= 32 && c <= 126) raw += String.fromCharCode(c);
-      else raw += ' ';
-    }
-    // Tìm nếu trong luồng có sẵn biểu thức TeX $...$ hoặc \[...\]
-    const texMatch = raw.match(/\$([^\$]{1,120})\$/);
-    if (texMatch) return `$${texMatch[1]}$`;
-    return '';
-  };
-
-  const embeddedTex = extractPrintableMath(oleUint8) || extractPrintableMath(wmfUint8);
-  if (embeddedTex) return embeddedTex;
-
-  // 2. Đọc trực tiếp các bản ghi chữ & ký hiệu Toán học (WMF META_EXTTEXTOUT / META_TEXTOUT) trong file .wmf
+// Bộ dựng trực tiếp ảnh công thức WMF của MathType sang Vector SVG chuẩn tọa độ từng ký tự (Dx + FontHeight)
+function decodeMathTypeFromWordBinary(wmfUint8) {
   if (!wmfUint8 || wmfUint8.length < 22) return '';
   const view = new DataView(wmfUint8.buffer, wmfUint8.byteOffset, wmfUint8.byteLength);
 
   let offset = 0;
-  let bboxLeft = 0, bboxTop = 0, bboxRight = 1200, bboxBottom = 400;
+  let bboxLeft = 0, bboxTop = 0, bboxRight = 1000, bboxBottom = 400;
 
-  // Kiểm tra Aldus Placeable WMF Header (0x9AC6CDD7) để lấy đúng kích thước khung công thức
+  // 1. Đọc Aldus Placeable WMF Header (22 bytes) để lấy đúng khung bao (Bounding Box) của công thức
   if (view.getUint32(0, true) === 0x9AC6CDD7) {
     bboxLeft = view.getInt16(6, true);
     bboxTop = view.getInt16(8, true);
@@ -998,37 +979,41 @@ function decodeMathTypeFromWordBinary(wmfUint8, oleUint8) {
     offset += 18;
   }
 
-  // Bảng quy đổi ký hiệu Symbol của MathType sang Unicode Toán học chuẩn
-  const symbolCharMap = {
-    0x22: '∀', 0x24: '∃', 0x27: '∋', 0x2A: '*', 0x2D: '−',
-    0x40: '≅', 0x41: 'Α', 0x42: 'Β', 0x43: 'Χ', 0x44: 'Δ',
-    0x45: 'Ε', 0x46: 'Φ', 0x47: 'Γ', 0x48: 'Η', 0x49: 'Ι',
-    0x4B: 'Κ', 0x4C: 'Λ', 0x4D: 'Μ', 0x4E: 'Ν', 0x4F: 'Ο',
-    0x50: 'Π', 0x51: 'Θ', 0x52: 'Ρ', 0x53: 'Σ', 0x54: 'Τ',
-    0x55: 'Υ', 0x57: 'Ω', 0x58: 'Ξ', 0x59: 'Ψ', 0x5A: 'Ζ',
-    0x5C: '∴', 0x5E: '⊥', 0x61: 'α', 0x62: 'β', 0x63: 'χ',
-    0x64: 'δ', 0x65: 'ε', 0x66: 'φ', 0x67: 'γ', 0x68: 'η',
-    0x69: 'ι', 0x6A: 'ϕ', 0x6B: 'κ', 0x6C: 'λ', 0x6D: 'μ',
-    0x6E: 'ν', 0x6F: 'ο', 0x70: 'π', 0x71: 'θ', 0x72: 'ρ',
-    0x73: 'σ', 0x74: 'τ', 0x75: 'υ', 0x76: 'ϖ', 0x77: 'ω',
-    0x78: 'ξ', 0x79: 'ψ', 0x7A: 'ζ', 0x7E: '∼',
-    0xA3: '≤', 0xA5: '∞', 0xB0: '°', 0xB1: '±', 0xB2: '″',
-    0xB3: '≥', 0xB4: '×', 0xB5: '∝', 0xB6: '∂', 0xB7: '•',
-    0xB8: '÷', 0xB9: '≠', 0xBA: '≡', 0xBB: '≈', 0xC4: '⊗',
-    0xC5: '⊕', 0xC6: '∅', 0xC7: '∩', 0xC8: '∪', 0xCC: '⊂',
-    0xCD: '⊆', 0xCE: '∈', 0xCF: '∉', 0xD0: '∠', 0xD1: '∇',
-    0xD6: '√', 0xD7: '⋅', 0xD9: '∧', 0xDA: '∨', 0xDB: '⇔',
-    0xDC: '⇐', 0xDD: '⇑', 0xDE: '⇒', 0xDF: '⇓', 0xE5: '∑',
-    0xAC: '←', 0xAD: '↑', 0xAE: '→', 0xAF: '↓', 0xF2: '∫'
-  };
-
-  let isSymbolFont = false;
-  const textItems = [];
-  const lineItems = [];
   let winOrgX = bboxLeft, winOrgY = bboxTop;
   let winExtX = Math.max(1, bboxRight - bboxLeft);
   let winExtY = Math.max(1, bboxBottom - bboxTop);
+
+  // Bảng ký tự Symbol & MT Extra của MathType
+  const symbolMap = {
+    0x22: '∀', 0x24: '∃', 0x27: '∋', 0x28: '(', 0x29: ')', 0x2A: '*', 0x2B: '+', 0x2C: ',', 0x2D: '−', 0x2E: '.', 0x2F: '/',
+    0x3A: ':', 0x3B: ';', 0x3C: '<', 0x3D: '=', 0x3E: '>', 0x5B: '[', 0x5D: ']',
+    0x40: '≅', 0x44: 'Δ', 0x46: 'Φ', 0x47: 'Γ', 0x4C: 'Λ', 0x50: 'Π', 0x51: 'Θ', 0x53: 'Σ', 0x57: 'Ω',
+    0x61: 'α', 0x62: 'β', 0x63: 'χ', 0x64: 'δ', 0x65: 'ε', 0x66: 'φ', 0x67: 'γ', 0x68: 'η', 0x69: 'ι',
+    0x6A: 'ϕ', 0x6B: 'κ', 0x6C: 'λ', 0x6D: 'μ', 0x6E: 'ν', 0x6F: 'ο', 0x70: 'π', 0x71: 'θ', 0x72: 'ρ',
+    0x73: 'σ', 0x74: 'τ', 0x75: 'υ', 0x77: 'ω', 0x78: 'ξ', 0x79: 'ψ', 0x7A: 'ζ', 0x7E: '∼',
+    0xA3: '≤', 0xA5: '∞', 0xB0: '°', 0xB1: '±', 0xB2: '″', 0xB3: '≥', 0xB4: '×', 0xB5: '∝', 0xB6: '∂', 0xB7: '•',
+    0xB8: '÷', 0xB9: '≠', 0xBA: '≡', 0xBB: '≈', 0xC4: '⊗', 0xC5: '⊕', 0xC6: '∅', 0xC7: '∩', 0xC8: '∪',
+    0xCC: '⊂', 0xCD: '⊆', 0xCE: '∈', 0xCF: '∉', 0xD0: '∠', 0xD6: '√', 0xD7: '⋅', 0xD9: '∧', 0xDA: '∨',
+    0xDB: '⇔', 0xDC: '⇐', 0xDD: '⇑', 0xDE: '⇒', 0xDF: '⇓', 0xE5: '∑', 0xAC: '←', 0xAD: '↑', 0xAE: '→', 0xAF: '↓', 0xF2: '∫',
+    // Các mảnh ghép dấu ngoặc lớn và dấu căn trong font Symbol của MathType
+    0xE6: '⎛', 0xE7: '⎜', 0xE8: '⎝', 0xE9: '⎡', 0xEA: '⎢', 0xEB: '⎣', 0xEC: '⎧', 0xED: '⎨', 0xEE: '⎩',
+    0xF6: '⎞', 0xF7: '⎟', 0xF8: '⎠', 0xF9: '⎤', 0xFA: '⎥', 0xFB: '⎦', 0xFC: '⎫', 0xFD: '⎬', 0xFE: '⎭'
+  };
+
+  // Quản lý bảng GDI Objects (Fonts, Pens) theo đúng chuẩn Windows GDI
+  const gdiObjects = [];
+  const addGdiObject = (obj) => {
+    const emptyIdx = gdiObjects.findIndex((x) => x === null);
+    if (emptyIdx !== -1) gdiObjects[emptyIdx] = obj;
+    else gdiObjects.push(obj);
+  };
+
+  let curFont = { height: 220, italic: false, bold: false, isSymbol: false };
   let curX = 0, curY = 0;
+  let textAlign = 0; // Mặc định TA_LEFT | TA_TOP (0), nếu bit 0x18 (24) bật là TA_BASELINE
+
+  const glyphs = [];
+  const lines = [];
 
   while (offset + 6 <= wmfUint8.length) {
     const sizeWords = view.getUint32(offset, true);
@@ -1036,139 +1021,143 @@ function decodeMathTypeFromWordBinary(wmfUint8, oleUint8) {
     const sizeBytes = sizeWords * 2;
     if (sizeBytes < 6 || offset + sizeBytes > wmfUint8.length) break;
 
-    // META_SETWINDOWORG
     if (func === 0x020B && sizeBytes >= 10) {
+      // META_SETWINDOWORG
       winOrgY = view.getInt16(offset + 6, true);
       winOrgX = view.getInt16(offset + 8, true);
-    }
-    // META_SETWINDOWEXT
-    else if (func === 0x020C && sizeBytes >= 10) {
+    } else if (func === 0x020C && sizeBytes >= 10) {
+      // META_SETWINDOWEXT
       winExtY = Math.abs(view.getInt16(offset + 6, true)) || winExtY;
       winExtX = Math.abs(view.getInt16(offset + 8, true)) || winExtX;
-    }
-    // META_CREATEFONTINDIRECT (Kiểm tra xem font hiện tại có phải Symbol hay không)
-    else if (func === 0x02FB && sizeBytes >= 24) {
+    } else if (func === 0x012E && sizeBytes >= 8) {
+      // META_SETTEXTALIGN
+      textAlign = view.getUint16(offset + 6, true);
+    } else if (func === 0x02FB && sizeBytes >= 24) {
+      // META_CREATEFONTINDIRECT
+      const rawH = view.getInt16(offset + 6, true);
+      const weight = view.getInt16(offset + 6 + 8, true);
+      const italic = wmfUint8[offset + 6 + 10] !== 0;
       const charSet = wmfUint8[offset + 6 + 13];
-      let faceName = '';
+      let face = '';
       for (let k = offset + 6 + 18; k < offset + sizeBytes && wmfUint8[k] !== 0; k++) {
-        faceName += String.fromCharCode(wmfUint8[k]);
+        face += String.fromCharCode(wmfUint8[k]);
       }
-      isSymbolFont = charSet === 2 || /symbol|mt extra|euclid/i.test(faceName);
-    }
-    // META_MOVETO
-    else if (func === 0x0214 && sizeBytes >= 10) {
+      const isSym = charSet === 2 || /symbol|mt extra|euclid math/i.test(face);
+      addGdiObject({
+        type: 'font',
+        height: Math.max(80, Math.abs(rawH)),
+        bold: weight >= 600,
+        italic: italic && !isSym,
+        isSymbol: isSym
+      });
+    } else if (func === 0x02FA || func === 0x02FC) {
+      // META_CREATEPENINDIRECT / META_CREATEBRUSHINDIRECT
+      addGdiObject({ type: 'other' });
+    } else if (func === 0x012D && sizeBytes >= 8) {
+      // META_SELECTOBJECT
+      const objIdx = view.getUint16(offset + 6, true);
+      const selected = gdiObjects[objIdx];
+      if (selected && selected.type === 'font') {
+        curFont = selected;
+      }
+    } else if (func === 0x01F0 && sizeBytes >= 8) {
+      // META_DELETEOBJECT
+      const objIdx = view.getUint16(offset + 6, true);
+      if (objIdx < gdiObjects.length) gdiObjects[objIdx] = null;
+    } else if (func === 0x0214 && sizeBytes >= 10) {
+      // META_MOVETO
       curY = view.getInt16(offset + 6, true);
       curX = view.getInt16(offset + 8, true);
-    }
-    // META_LINETO (Đường kẻ phân số / căn thức / bảng)
-    else if (func === 0x0213 && sizeBytes >= 10) {
+    } else if (func === 0x0213 && sizeBytes >= 10) {
+      // META_LINETO (Đường kẻ phân số, dấu căn)
       const ny = view.getInt16(offset + 6, true);
       const nx = view.getInt16(offset + 8, true);
-      lineItems.push({ x1: curX, y1: curY, x2: nx, y2: ny });
+      lines.push({ x1: curX, y1: curY, x2: nx, y2: ny });
       curX = nx; curY = ny;
-    }
-    // META_POLYLINE / META_POLYGON (Dấu căn, mũi tên vectơ, ngoặc)
-    else if ((func === 0x0325 || func === 0x0324) && sizeBytes >= 10) {
-      const count = view.getInt16(offset + 6, true);
+    } else if ((func === 0x0325 || func === 0x0324) && sizeBytes >= 10) {
+      // META_POLYLINE / META_POLYGON (Nét vẽ dấu căn, mũi tên vectơ)
+      const ptCount = view.getInt16(offset + 6, true);
       let pOff = offset + 8;
       const pts = [];
-      for (let p = 0; p < count && pOff + 4 <= offset + sizeBytes; p++) {
-        const px = view.getInt16(pOff, true);
-        const py = view.getInt16(pOff + 2, true);
-        pts.push({ x: px, y: py });
+      for (let p = 0; p < ptCount && pOff + 4 <= offset + sizeBytes; p++) {
+        pts.push({ x: view.getInt16(pOff, true), y: view.getInt16(pOff + 2, true) });
         pOff += 4;
       }
       for (let p = 0; p < pts.length - 1; p++) {
-        lineItems.push({ x1: pts[p].x, y1: pts[p].y, x2: pts[p + 1].x, y2: pts[p + 1].y });
+        lines.push({ x1: pts[p].x, y1: pts[p].y, x2: pts[p + 1].x, y2: pts[p + 1].y });
       }
-    }
-    // META_EXTTEXTOUT (0x0A32) - Bản ghi chứa các chữ số và ký hiệu của MathType
-    else if (func === 0x0A32 && sizeBytes >= 14) {
+    } else if (func === 0x0A32 && sizeBytes >= 14) {
+      // META_EXTTEXTOUT: Đọc từng ký tự kèm mảng khoảng cách Dx
       const ty = view.getInt16(offset + 6, true);
       const tx = view.getInt16(offset + 8, true);
-      const strLen = view.getInt16(offset + 10, true);
-      const fwOpts = view.getUint16(offset + 12, true);
-      const strStart = offset + 14 + ((fwOpts & 0x0006) ? 8 : 0);
+      const count = view.getInt16(offset + 10, true);
+      const opts = view.getUint16(offset + 12, true);
+      const hasRect = (opts & 0x0006) !== 0;
+      const strStart = offset + 14 + (hasRect ? 8 : 0);
+      const dxStart = strStart + count + (count % 2);
 
-      let str = '';
-      for (let c = 0; c < strLen && strStart + c < offset + sizeBytes; c++) {
+      let charX = tx;
+      const isBaseline = (textAlign & 0x18) === 0x18;
+      const baselineY = isBaseline ? ty : ty + Math.round(curFont.height * 0.82);
+
+      for (let c = 0; c < count && strStart + c < offset + sizeBytes; c++) {
         const code = wmfUint8[strStart + c];
-        if (isSymbolFont && symbolCharMap[code]) {
-          str += symbolCharMap[code];
+        let ch = '';
+        if (curFont.isSymbol && symbolMap[code]) {
+          ch = symbolMap[code];
         } else if (code >= 32) {
-          str += String.fromCharCode(code);
+          ch = String.fromCharCode(code);
+        }
+
+        if (ch.trim()) {
+          glyphs.push({
+            x: charX,
+            y: baselineY,
+            text: ch,
+            fontSize: curFont.height,
+            italic: curFont.italic && /^[a-zA-Z]$/.test(ch),
+            bold: curFont.bold
+          });
+        }
+
+        // Cộng dồn khoảng cách Dx của từng ký tự (Nếu có mảng Dx ở cuối lệnh)
+        if (dxStart + (c + 1) * 2 <= offset + sizeBytes) {
+          charX += view.getInt16(dxStart + c * 2, true);
+        } else {
+          charX += Math.round(curFont.height * 0.55);
         }
       }
-      if (str.trim()) {
-        textItems.push({ x: tx, y: ty, text: str });
-      }
-    }
-    // META_TEXTOUT (0x0521)
-    else if (func === 0x0521 && sizeBytes >= 12) {
-      const strLen = view.getInt16(offset + 6, true);
-      const strStart = offset + 8;
-      let str = '';
-      for (let c = 0; c < strLen && strStart + c < offset + sizeBytes; c++) {
-        const code = wmfUint8[strStart + c];
-        str += (isSymbolFont && symbolCharMap[code]) ? symbolCharMap[code] : String.fromCharCode(code);
-      }
-      const afterStr = strStart + strLen + (strLen % 2);
-      if (afterStr + 4 <= offset + sizeBytes && str.trim()) {
-        const ty = view.getInt16(afterStr, true);
-        const tx = view.getInt16(afterStr + 2, true);
-        textItems.push({ x: tx, y: ty, text: str });
-      }
     }
 
-    if (func === 0x0000) break; // META_EOF
+    if (func === 0x0000) break;
     offset += sizeBytes;
   }
 
-  if (textItems.length === 0 && lineItems.length === 0) return '';
+  if (glyphs.length === 0 && lines.length === 0) return '';
 
-  // Nếu chỉ là biểu thức 1 dòng đơn giản -> Trả về dạng công thức Toán KaTeX mượt mà
-  if (lineItems.length === 0 && textItems.length > 0) {
-    textItems.sort((a, b) => a.x - b.x);
-    const merged = textItems.map((t) => t.text).join('');
-    return `$${merged}$`;
-  }
+  // Tính khung nhìn chuẩn xác từ Header WMF
+  const vbX = winOrgX - 20;
+  const vbY = winOrgY - 20;
+  const vbW = Math.max(120, winExtX + 40);
+  const vbH = Math.max(120, winExtY + 40);
 
-  // Nếu có phân số, căn thức, vectơ hoặc hệ phương trình -> Dựng thành thẻ <svg> inline sắc nét ngay trên dòng chữ
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  textItems.forEach((t) => {
-    if (t.x < minX) minX = t.x;
-    if (t.y < minY) minY = t.y;
-    if (t.x + t.text.length * 140 > maxX) maxX = t.x + t.text.length * 140;
-    if (t.y + 240 > maxY) maxY = t.y + 240;
-  });
-  lineItems.forEach((l) => {
-    minX = Math.min(minX, l.x1, l.x2);
-    minY = Math.min(minY, l.y1, l.y2);
-    maxX = Math.max(maxX, l.x1, l.x2);
-    maxY = Math.max(maxY, l.y1, l.y2);
-  });
+  // Quy đổi chiều cao hiển thị thực tế trên dòng văn bản (Inline SVG)
+  const pixelHeight = Math.min(58, Math.max(20, Math.round((vbH / 320) * 24)));
+  const strokeW = Math.max(8, Math.round(vbH * 0.032));
 
-  if (!isFinite(minX)) { minX = winOrgX; minY = winOrgY; maxX = winOrgX + winExtX; maxY = winOrgY + winExtY; }
-  const pad = 60;
-  const vbX = minX - pad;
-  const vbY = minY - pad;
-  const vbW = Math.max(200, maxX - minX + pad * 2);
-  const vbH = Math.max(160, maxY - minY + pad * 2);
-  const displayH = Math.min(54, Math.max(22, Math.round(vbH / 16)));
-
-  const svgLines = lineItems
-    .map((l) => `<line x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke="#0f172a" stroke-width="${Math.max(12, Math.round(vbH / 28))}" stroke-linecap="round" />`)
+  const svgLines = lines
+    .map((l) => `<line x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke="#0f172a" stroke-width="${strokeW}" stroke-linecap="round" />`)
     .join('');
 
-  const fontSize = Math.max(150, Math.round(vbH * 0.42));
-  const svgTexts = textItems
-    .map((t) => {
-      const safeText = t.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      return `<text x="${t.x}" y="${t.y + Math.round(fontSize * 0.82)}" font-family="Times New Roman, serif" font-size="${fontSize}" fill="#0f172a">${safeText}</text>`;
+  const svgTexts = glyphs
+    .map((g) => {
+      const safe = g.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const style = `${g.italic ? 'font-style:italic;' : ''}${g.bold ? 'font-weight:bold;' : ''}`;
+      return `<text x="${g.x}" y="${g.y}" font-family="Times New Roman, Times, serif" font-size="${g.fontSize}" style="${style}" fill="#0f172a">${safe}</text>`;
     })
     .join('');
 
-  return `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" style="height:${displayH}px; width:auto; display:inline-block; vertical-align:middle; margin:0 2px;" xmlns="http://www.w3.org/2000/svg">${svgLines}${svgTexts}</svg>`;
+  return `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" style="height:${pixelHeight}px; width:auto; display:inline-block; vertical-align:middle; margin:0 2px; overflow:visible;" xmlns="http://www.w3.org/2000/svg">${svgLines}${svgTexts}</svg>`;
 }
 
 function cleanLatexToHtmlMath(str) {
@@ -2692,11 +2681,11 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
           // Tự động khôi phục chữ "Câu 1.", "Câu 2." nếu file Word dùng đánh số tự động (Numbering)
           if (
-            hasNumPr &&
-            !/^(Câu\s+\d+|PHẦN\s+[I123V]+|\*?[A-D][\.\)]|\*?[a-d]\)|Lời giải|HD|Đáp án|Bảng đáp án)/i.test(cleanLine)
-          ) {
-            cleanLine = `Câu ${autoQuestionCounter++}. ${cleanLine}`;
-          }
+         hasNumPr &&
+         !/^(Câu\s+\d+|Phần\s+[\dIVX]+|[IVX]+\.\s*Trắc\s*nghiệm|\*?[A-D][\.\)]|\*?[a-d]\)|Lời\s*giải|HD|Đáp\s*án|Bảng\s*đáp\s*án)/i.test(cleanLine)
+       ) {
+         cleanLine = `Câu ${autoQuestionCounter++}. ${cleanLine}`;
+       }
 
           extractedLines.push(cleanLine);
         }
