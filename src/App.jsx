@@ -957,63 +957,66 @@ function convertTikzPlotToSvg(tikzCode) {
 
 // 3. Làm sạch & chuyển đổi môi trường LaTeX sang HTML + KaTeX
 
-// Bộ dựng trực tiếp ảnh công thức WMF của MathType sang Vector SVG chuẩn tọa độ từng ký tự (Dx + FontHeight)
+// Bộ dựng trực tiếp ảnh công thức WMF của MathType sang Vector SVG (Chuẩn hệ tọa độ thực tế & TA_UPDATECP)
 function decodeMathTypeFromWordBinary(wmfUint8) {
   if (!wmfUint8 || wmfUint8.length < 22) return '';
   const view = new DataView(wmfUint8.buffer, wmfUint8.byteOffset, wmfUint8.byteLength);
 
   let offset = 0;
-  let bboxLeft = 0, bboxTop = 0, bboxRight = 1000, bboxBottom = 400;
-
-  // 1. Đọc Aldus Placeable WMF Header (22 bytes) để lấy đúng khung bao (Bounding Box) của công thức
+  // Kiểm tra Aldus Placeable WMF Header (22 bytes)
   if (view.getUint32(0, true) === 0x9AC6CDD7) {
-    bboxLeft = view.getInt16(6, true);
-    bboxTop = view.getInt16(8, true);
-    bboxRight = view.getInt16(10, true);
-    bboxBottom = view.getInt16(12, true);
     offset = 22;
   }
-
   // Bỏ qua Standard WMF Header (18 bytes)
   if (offset + 18 <= wmfUint8.length) {
     offset += 18;
   }
 
-  let winOrgX = bboxLeft, winOrgY = bboxTop;
-  let winExtX = Math.max(1, bboxRight - bboxLeft);
-  let winExtY = Math.max(1, bboxBottom - bboxTop);
-
-  // Bảng ký tự Symbol & MT Extra của MathType
+  // Bảng ký tự Symbol & MT Extra của MathType (Windows Symbol Charset)
   const symbolMap = {
-    0x22: '∀', 0x24: '∃', 0x27: '∋', 0x28: '(', 0x29: ')', 0x2A: '*', 0x2B: '+', 0x2C: ',', 0x2D: '−', 0x2E: '.', 0x2F: '/',
-    0x3A: ':', 0x3B: ';', 0x3C: '<', 0x3D: '=', 0x3E: '>', 0x5B: '[', 0x5D: ']',
-    0x40: '≅', 0x44: 'Δ', 0x46: 'Φ', 0x47: 'Γ', 0x4C: 'Λ', 0x50: 'Π', 0x51: 'Θ', 0x53: 'Σ', 0x57: 'Ω',
-    0x61: 'α', 0x62: 'β', 0x63: 'χ', 0x64: 'δ', 0x65: 'ε', 0x66: 'φ', 0x67: 'γ', 0x68: 'η', 0x69: 'ι',
-    0x6A: 'ϕ', 0x6B: 'κ', 0x6C: 'λ', 0x6D: 'μ', 0x6E: 'ν', 0x6F: 'ο', 0x70: 'π', 0x71: 'θ', 0x72: 'ρ',
-    0x73: 'σ', 0x74: 'τ', 0x75: 'υ', 0x77: 'ω', 0x78: 'ξ', 0x79: 'ψ', 0x7A: 'ζ', 0x7E: '∼',
-    0xA3: '≤', 0xA5: '∞', 0xB0: '°', 0xB1: '±', 0xB2: '″', 0xB3: '≥', 0xB4: '×', 0xB5: '∝', 0xB6: '∂', 0xB7: '•',
-    0xB8: '÷', 0xB9: '≠', 0xBA: '≡', 0xBB: '≈', 0xC4: '⊗', 0xC5: '⊕', 0xC6: '∅', 0xC7: '∩', 0xC8: '∪',
-    0xCC: '⊂', 0xCD: '⊆', 0xCE: '∈', 0xCF: '∉', 0xD0: '∠', 0xD6: '√', 0xD7: '⋅', 0xD9: '∧', 0xDA: '∨',
-    0xDB: '⇔', 0xDC: '⇐', 0xDD: '⇑', 0xDE: '⇒', 0xDF: '⇓', 0xE5: '∑', 0xAC: '←', 0xAD: '↑', 0xAE: '→', 0xAF: '↓', 0xF2: '∫',
-    // Các mảnh ghép dấu ngoặc lớn và dấu căn trong font Symbol của MathType
-    0xE6: '⎛', 0xE7: '⎜', 0xE8: '⎝', 0xE9: '⎡', 0xEA: '⎢', 0xEB: '⎣', 0xEC: '⎧', 0xED: '⎨', 0xEE: '⎩',
+    0x20: ' ', 0x21: '!', 0x22: '∀', 0x23: '#', 0x24: '∃', 0x25: '%', 0x26: '&', 0x27: '∋',
+    0x28: '(', 0x29: ')', 0x2A: '∗', 0x2B: '+', 0x2C: ',', 0x2D: '−', 0x2E: '.', 0x2F: '/',
+    0x3A: ':', 0x3B: ';', 0x3C: '<', 0x3D: '=', 0x3E: '>', 0x3F: '?',
+    0x40: '≅', 0x41: 'Α', 0x42: 'Β', 0x43: 'Χ', 0x44: 'Δ', 0x45: 'Ε', 0x46: 'Φ', 0x47: 'Γ',
+    0x48: 'Η', 0x49: 'Ι', 0x4A: 'ϑ', 0x4B: 'Κ', 0x4C: 'Λ', 0x4D: 'Μ', 0x4E: 'Ν', 0x4F: 'Ο',
+    0x50: 'Π', 0x51: 'Θ', 0x52: 'Ρ', 0x53: 'Σ', 0x54: 'Τ', 0x55: 'Υ', 0x56: 'ς', 0x57: 'Ω',
+    0x58: 'Ξ', 0x59: 'Ψ', 0x5A: 'Ζ', 0x5B: '[', 0x5C: '∴', 0x5D: ']', 0x5E: '⊥', 0x5F: '_',
+    0x61: 'α', 0x62: 'β', 0x63: 'χ', 0x64: 'δ', 0x65: 'ε', 0x66: 'φ', 0x67: 'γ', 0x68: 'η',
+    0x69: 'ι', 0x6A: 'ϕ', 0x6B: 'κ', 0x6C: 'λ', 0x6D: 'μ', 0x6E: 'ν', 0x6F: 'ο', 0x70: 'π',
+    0x71: 'θ', 0x72: 'ρ', 0x73: 'σ', 0x74: 'τ', 0x75: 'υ', 0x76: 'ϖ', 0x77: 'ω', 0x78: 'ξ',
+    0x79: 'ψ', 0x7A: 'ζ', 0x7B: '{', 0x7C: '|', 0x7D: '}', 0x7E: '∼',
+    0xA0: '€', 0xA1: 'ϒ', 0xA2: '′', 0xA3: '≤', 0xA4: '⁄', 0xA5: '∞', 0xA6: 'ƒ',
+    0xAB: '↔', 0xAC: '←', 0xAD: '↑', 0xAE: '→', 0xAF: '↓',
+    0xB0: '°', 0xB1: '±', 0xB2: '″', 0xB3: '≥', 0xB4: '×', 0xB5: '∝', 0xB6: '∂', 0xB7: '•',
+    0xB8: '÷', 0xB9: '≠', 0xBA: '≡', 0xBB: '≈', 0xBC: '…', 0xBD: '∣', 0xBE: '⎯',
+    0xC4: '⊗', 0xC5: '⊕', 0xC6: '∅', 0xC7: '∩', 0xC8: '∪', 0xCC: '⊂', 0xCD: '⊆',
+    0xCE: '∈', 0xCF: '∉', 0xD0: '∠', 0xD1: '∇', 0xD5: '∏', 0xD6: '√', 0xD7: '⋅',
+    0xD8: '¬', 0xD9: '∧', 0xDA: '∨', 0xDB: '⇔', 0xDC: '⇐', 0xDD: '⇑', 0xDE: '⇒', 0xDF: '⇓',
+    0xE5: '∑', 0xE6: '⎛', 0xE7: '⎜', 0xE8: '⎝', 0xE9: '⎡', 0xEA: '⎢', 0xEB: '⎣',
+    0xEC: '⎧', 0xED: '⎨', 0xEE: '⎩', 0xEF: '⎪', 0xF2: '∫', 0xF3: '⌠', 0xF4: '⎮', 0xF5: '⌡',
     0xF6: '⎞', 0xF7: '⎟', 0xF8: '⎠', 0xF9: '⎤', 0xFA: '⎥', 0xFB: '⎦', 0xFC: '⎫', 0xFD: '⎬', 0xFE: '⎭'
   };
 
-  // Quản lý bảng GDI Objects (Fonts, Pens) theo đúng chuẩn Windows GDI
+  // Bảng ký tự đặc biệt của font MT Extra (MathType)
+  const mtExtraMap = {
+    0x21: '↦', 0x22: '⇌', 0x28: '⌢', 0x29: '⌣', 0x31: 'ℏ', 0x36: '…', 0x37: '⋯', 0x38: '⋮', 0x39: '⋱',
+    0x41: '≅', 0x42: '∼', 0x43: '≃', 0x66: '>', 0x6C: 'ℓ', 0x70: '℘', 0x71: '⇀', 0x72: '→', 0x73: '↔'
+  };
+
   const gdiObjects = [];
   const addGdiObject = (obj) => {
-    const emptyIdx = gdiObjects.findIndex((x) => x === null);
-    if (emptyIdx !== -1) gdiObjects[emptyIdx] = obj;
+    const idx = gdiObjects.findIndex((x) => x === null);
+    if (idx !== -1) gdiObjects[idx] = obj;
     else gdiObjects.push(obj);
   };
 
-  let curFont = { height: 220, italic: false, bold: false, isSymbol: false };
+  let curFont = { height: 240, italic: false, bold: false, isSymbol: false, isMtExtra: false };
   let curX = 0, curY = 0;
-  let textAlign = 0; // Mặc định TA_LEFT | TA_TOP (0), nếu bit 0x18 (24) bật là TA_BASELINE
+  let textAlign = 0;
 
   const glyphs = [];
   const lines = [];
+  const stateStack = [];
 
   while (offset + 6 <= wmfUint8.length) {
     const sizeWords = view.getUint32(offset, true);
@@ -1021,14 +1024,15 @@ function decodeMathTypeFromWordBinary(wmfUint8) {
     const sizeBytes = sizeWords * 2;
     if (sizeBytes < 6 || offset + sizeBytes > wmfUint8.length) break;
 
-    if (func === 0x020B && sizeBytes >= 10) {
-      // META_SETWINDOWORG
-      winOrgY = view.getInt16(offset + 6, true);
-      winOrgX = view.getInt16(offset + 8, true);
-    } else if (func === 0x020C && sizeBytes >= 10) {
-      // META_SETWINDOWEXT
-      winExtY = Math.abs(view.getInt16(offset + 6, true)) || winExtY;
-      winExtX = Math.abs(view.getInt16(offset + 8, true)) || winExtX;
+    if (func === 0x001E) {
+      // META_SAVEDC
+      stateStack.push({ curFont: { ...curFont }, curX, curY, textAlign });
+    } else if (func === 0x0127) {
+      // META_RESTOREDC
+      if (stateStack.length > 0) {
+        const st = stateStack.pop();
+        curFont = st.curFont; curX = st.curX; curY = st.curY; textAlign = st.textAlign;
+      }
     } else if (func === 0x012E && sizeBytes >= 8) {
       // META_SETTEXTALIGN
       textAlign = view.getUint16(offset + 6, true);
@@ -1042,16 +1046,18 @@ function decodeMathTypeFromWordBinary(wmfUint8) {
       for (let k = offset + 6 + 18; k < offset + sizeBytes && wmfUint8[k] !== 0; k++) {
         face += String.fromCharCode(wmfUint8[k]);
       }
-      const isSym = charSet === 2 || /symbol|mt extra|euclid math/i.test(face);
+      const isMtExtra = /mt extra/i.test(face);
+      const isSym = charSet === 2 || /symbol|euclid math/i.test(face);
       addGdiObject({
         type: 'font',
-        height: Math.max(80, Math.abs(rawH)),
+        height: Math.max(60, Math.abs(rawH)),
         bold: weight >= 600,
-        italic: italic && !isSym,
-        isSymbol: isSym
+        italic: italic && !isSym && !isMtExtra,
+        isSymbol: isSym,
+        isMtExtra
       });
-    } else if (func === 0x02FA || func === 0x02FC) {
-      // META_CREATEPENINDIRECT / META_CREATEBRUSHINDIRECT
+    } else if (func === 0x02FA || func === 0x02FC || func === 0x0142) {
+      // PEN / BRUSH / PALETTE
       addGdiObject({ type: 'other' });
     } else if (func === 0x012D && sizeBytes >= 8) {
       // META_SELECTOBJECT
@@ -1069,13 +1075,13 @@ function decodeMathTypeFromWordBinary(wmfUint8) {
       curY = view.getInt16(offset + 6, true);
       curX = view.getInt16(offset + 8, true);
     } else if (func === 0x0213 && sizeBytes >= 10) {
-      // META_LINETO (Đường kẻ phân số, dấu căn)
+      // META_LINETO
       const ny = view.getInt16(offset + 6, true);
       const nx = view.getInt16(offset + 8, true);
       lines.push({ x1: curX, y1: curY, x2: nx, y2: ny });
       curX = nx; curY = ny;
     } else if ((func === 0x0325 || func === 0x0324) && sizeBytes >= 10) {
-      // META_POLYLINE / META_POLYGON (Nét vẽ dấu căn, mũi tên vectơ)
+      // META_POLYLINE / META_POLYGON (Dấu căn, khung, mũi tên)
       const ptCount = view.getInt16(offset + 6, true);
       let pOff = offset + 8;
       const pts = [];
@@ -1087,29 +1093,46 @@ function decodeMathTypeFromWordBinary(wmfUint8) {
         lines.push({ x1: pts[p].x, y1: pts[p].y, x2: pts[p + 1].x, y2: pts[p + 1].y });
       }
     } else if (func === 0x0A32 && sizeBytes >= 14) {
-      // META_EXTTEXTOUT: Đọc từng ký tự kèm mảng khoảng cách Dx
-      const ty = view.getInt16(offset + 6, true);
-      const tx = view.getInt16(offset + 8, true);
+      // META_EXTTEXTOUT
+      const recY = view.getInt16(offset + 6, true);
+      const recX = view.getInt16(offset + 8, true);
       const count = view.getInt16(offset + 10, true);
       const opts = view.getUint16(offset + 12, true);
+
+      // Nếu bật cờ TA_UPDATECP (bit 0 = 1), lấy vị trí con trỏ hiện tại (curX, curY)
+      const useCP = (textAlign & 0x0001) !== 0;
+      let startX = useCP ? curX : recX;
+      let startY = useCP ? curY : recY;
+
       const hasRect = (opts & 0x0006) !== 0;
       const strStart = offset + 14 + (hasRect ? 8 : 0);
-      const dxStart = strStart + count + (count % 2);
+      const paddedStrLen = count + (count % 2);
+      const dxStart = strStart + paddedStrLen;
+      const hasDx = dxStart + count * 2 <= offset + sizeBytes;
 
-      let charX = tx;
-      const isBaseline = (textAlign & 0x18) === 0x18;
-      const baselineY = isBaseline ? ty : ty + Math.round(curFont.height * 0.82);
+      // Kiểm tra căn lề dọc: TA_BASELINE (0x0018 = 24), TA_BOTTOM (0x0008 = 8), mặc định TA_TOP (0)
+      const vAlign = textAlign & 0x0018;
+      const baselineY =
+        vAlign === 0x0018
+          ? startY
+          : vAlign === 0x0008
+          ? startY - Math.round(curFont.height * 0.18)
+          : startY + Math.round(curFont.height * 0.82);
 
+      let charX = startX;
       for (let c = 0; c < count && strStart + c < offset + sizeBytes; c++) {
         const code = wmfUint8[strStart + c];
         let ch = '';
-        if (curFont.isSymbol && symbolMap[code]) {
+        if (curFont.isMtExtra && mtExtraMap[code]) {
+          ch = mtExtraMap[code];
+        } else if (curFont.isSymbol && symbolMap[code]) {
           ch = symbolMap[code];
         } else if (code >= 32) {
+          // Bảng mã Windows-1252 cơ bản
           ch = String.fromCharCode(code);
         }
 
-        if (ch.trim()) {
+        if (ch && ch !== ' ') {
           glyphs.push({
             x: charX,
             y: baselineY,
@@ -1120,12 +1143,16 @@ function decodeMathTypeFromWordBinary(wmfUint8) {
           });
         }
 
-        // Cộng dồn khoảng cách Dx của từng ký tự (Nếu có mảng Dx ở cuối lệnh)
-        if (dxStart + (c + 1) * 2 <= offset + sizeBytes) {
-          charX += view.getInt16(dxStart + c * 2, true);
-        } else {
-          charX += Math.round(curFont.height * 0.55);
+        let stepX = Math.round(curFont.height * 0.52);
+        if (hasDx) {
+          const dxVal = view.getInt16(dxStart + c * 2, true);
+          if (dxVal > 0 && dxVal < curFont.height * 4) stepX = dxVal;
         }
+        charX += stepX;
+      }
+
+      if (useCP) {
+        curX = charX;
       }
     }
 
@@ -1135,15 +1162,44 @@ function decodeMathTypeFromWordBinary(wmfUint8) {
 
   if (glyphs.length === 0 && lines.length === 0) return '';
 
-  // Tính khung nhìn chuẩn xác từ Header WMF
-  const vbX = winOrgX - 20;
-  const vbY = winOrgY - 20;
-  const vbW = Math.max(120, winExtX + 40);
-  const vbH = Math.max(120, winExtY + 40);
+  // TỰ ĐỘNG TÍNH KHUNG BAO THỰC TẾ (ACTUAL BOUNDING BOX) TỪ CÁC CHỮ VÀ ĐƯỜNG KẺ
+  // Giúp công thức không bao giờ bị cắt mất nửa trên hay lệch khung nhìn!
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-  // Quy đổi chiều cao hiển thị thực tế trên dòng văn bản (Inline SVG)
-  const pixelHeight = Math.min(58, Math.max(20, Math.round((vbH / 320) * 24)));
-  const strokeW = Math.max(8, Math.round(vbH * 0.032));
+  glyphs.forEach((g) => {
+    const topY = g.y - Math.round(g.fontSize * 0.88);
+    const botY = g.y + Math.round(g.fontSize * 0.25);
+    const rightX = g.x + Math.round(g.fontSize * 0.65);
+    if (g.x < minX) minX = g.x;
+    if (rightX > maxX) maxX = rightX;
+    if (topY < minY) minY = topY;
+    if (botY > maxY) maxY = botY;
+  });
+
+  lines.forEach((l) => {
+    minX = Math.min(minX, l.x1, l.x2);
+    maxX = Math.max(maxX, l.x1, l.x2);
+    minY = Math.min(minY, l.y1, l.y2);
+    maxY = Math.max(maxY, l.y1, l.y2);
+  });
+
+  if (!isFinite(minX)) return '';
+
+  // Lấy cỡ chữ trung bình làm chuẩn quy đổi sang chiều cao pixel trên dòng văn bản
+  const avgFontH = glyphs.length > 0
+    ? glyphs.reduce((s, g) => s + g.fontSize, 0) / glyphs.length
+    : 220;
+
+  const padX = Math.round(avgFontH * 0.18);
+  const padY = Math.round(avgFontH * 0.16);
+  const vbX = minX - padX;
+  const vbY = minY - padY;
+  const vbW = Math.max(60, maxX - minX + padX * 2);
+  const vbH = Math.max(60, maxY - minY + padY * 2);
+
+  // Tỷ lệ hiển thị: 1 dòng chữ thường (1 * avgFontH) cao khoảng 21px; phân số/căn bậc hai tự động cao tương ứng
+  const pixelHeight = Math.min(72, Math.max(20, Math.round((vbH / avgFontH) * 19)));
+  const strokeW = Math.max(6, Math.round(avgFontH * 0.065));
 
   const svgLines = lines
     .map((l) => `<line x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke="#0f172a" stroke-width="${strokeW}" stroke-linecap="round" />`)
@@ -1157,7 +1213,7 @@ function decodeMathTypeFromWordBinary(wmfUint8) {
     })
     .join('');
 
-  return `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" style="height:${pixelHeight}px; width:auto; display:inline-block; vertical-align:middle; margin:0 2px; overflow:visible;" xmlns="http://www.w3.org/2000/svg">${svgLines}${svgTexts}</svg>`;
+  return `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" style="height:${pixelHeight}px; width:auto; display:inline-block; vertical-align:middle; margin:0 3px; overflow:visible;" xmlns="http://www.w3.org/2000/svg">${svgLines}${svgTexts}</svg>`;
 }
 
 function cleanLatexToHtmlMath(str) {
