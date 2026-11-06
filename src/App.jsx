@@ -2089,16 +2089,63 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   };
 
-  // 5. Đọc nội dung HTML / Bài tập từ Google Drive về Web
-  const fetchFromGoogleDrive = async (fileId) => {
+  // ================= ENGINE TĂNG TỐC ĐỘ TẢI FILE HTML NẶNG (INDEXEDDB) =================
+  const openIndexedDB = () =>
+    new Promise((resolve, reject) => {
+      const req = window.indexedDB.open('VyMathFastCacheDB', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('drive_files')) {
+          db.createObjectStore('drive_files');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+
+  const getCachedFileFromIDB = async (fileId) => {
+    try {
+      const db = await openIndexedDB();
+      return await new Promise((resolve) => {
+        const tx = db.transaction('drive_files', 'readonly');
+        const req = tx.objectStore('drive_files').get(fileId);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      });
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const saveCachedFileToIDB = async (fileId, content) => {
+    try {
+      const db = await openIndexedDB();
+      const tx = db.transaction('drive_files', 'readwrite');
+      tx.objectStore('drive_files').put(content, fileId);
+    } catch (e) {}
+  };
+
+  const fetchFromGoogleDrive = async (fileId, forceRefresh = false) => {
     if (!fileId) return '';
-    if (driveContentCache[fileId]) return driveContentCache[fileId];
+    if (!forceRefresh && driveContentCache[fileId]) return driveContentCache[fileId];
+
+    // 1. Lấy từ ổ cứng trình duyệt (IndexedDB) ra ngay lập tức trong 0.1 giây
+    if (!forceRefresh) {
+      const diskCached = await getCachedFileFromIDB(fileId);
+      if (diskCached) {
+        setDriveContentCache((prev) => ({ ...prev, [fileId]: diskCached }));
+        return diskCached;
+      }
+    }
+
+    // 2. Nếu mở lần đầu tiên chưa có trong máy thì mới tải từ Google Drive
     setIsLoadingDriveFile(true);
     try {
       const res = await fetch(`${GAS_DRIVE_URL}?fileId=${fileId}`);
       const data = await res.json();
       if (data.success && data.content) {
         setDriveContentCache((prev) => ({ ...prev, [fileId]: data.content }));
+        saveCachedFileToIDB(fileId, data.content);
         return data.content;
       }
     } catch (e) {
@@ -2114,6 +2161,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       fetchFromGoogleDrive(selectedLesson.drive_file_id);
     }
   }, [selectedLesson]);
+  
 
   // 6. Nhận nét viết khi bấm nút "💾 Lưu" trên bảng vẽ -> Sửa thẳng HTML trên Drive hoặc Tạo file HTML khác
  useEffect(() => {
@@ -2583,6 +2631,25 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     }
     return rawHtml + fullInjectedCode;
   };
+
+  // Tạo Blob URL trong RAM giúp mở file HTML nặng 10MB-20MB không bị đơ trình duyệt
+  const [iframeBlobUrl, setIframeBlobUrl] = useState('');
+  const rawActiveHtml = selectedLesson
+    ? (selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id] || '')
+    : '';
+
+  useEffect(() => {
+    if (!selectedLesson || !rawActiveHtml) {
+      setIframeBlobUrl('');
+      return;
+    }
+    const finalHtml = getRenderedHtml(selectedLesson);
+    const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    setIframeBlobUrl(url);
+
+    return () => URL.revokeObjectURL(url);
+  }, [selectedLesson?.id, selectedLesson?.show_answers, rawActiveHtml]);
 
   // Chọn file PDF / Word / Tài liệu trực tiếp từ máy tính
   const handleFileUploadDocument = (e) => {
@@ -3326,21 +3393,25 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
             <div className={isExpandedView ? 'lg:col-span-12' : 'lg:col-span-9'}>
               {selectedLesson ? (
-                <div className="bg-[#0b1120] rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-58px)]">
-                  {(selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id]) ? (
+                <div className="bg-[#0b1120] rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-58px)] relative">
+                  {iframeBlobUrl ? (
                     <iframe
-                      key={`${selectedLesson.id}-${selectedLesson.show_answers}`}
-                      srcDoc={getRenderedHtml(selectedLesson)}
+                      key={iframeBlobUrl}
+                      src={iframeBlobUrl}
                       title={selectedLesson.title}
-                      className="w-full flex-1 border-0"
-                      sandbox="allow-scripts allow-same-origin allow-modals"
+                      className="w-full flex-1 border-0 bg-white"
+                      sandbox="allow-scripts allow-same-origin allow-modals allow-popups"
                     />
                   ) : (
-                    <iframe
-                      src={`https://drive.google.com/file/d/${selectedLesson.drive_file_id}/preview`}
-                      title={selectedLesson.title}
-                      className="w-full flex-1 border-0"
-                    />
+                    <div className="flex-1 flex flex-col items-center justify-center space-y-3 text-white p-6">
+                      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                      <p className="font-extrabold text-sm sm:text-base text-amber-400">
+                        ⚡ Đang nạp bài giảng "{selectedLesson.title}"...
+                      </p>
+                      <p className="text-xs text-slate-400 text-center max-w-md">
+                        File dung lượng lớn chỉ cần nạp lần đầu tiên. Các lần mở sau sẽ hiển thị tức thì trong 0.2 giây!
+                      </p>
+                    </div>
                   )}
                 </div>
               ) : (
