@@ -2089,48 +2089,64 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   };
 
-  // Giải nén GZIP trực tiếp trên RAM (Không lưu vào ổ cứng máy tính)
-  // Hàm gọt bỏ chuỗi Font Base64 nặng hàng chục MB (Đặt ngay đây để mọi nơi đều gọi được)
-  const stripHeavyBase64Fonts = (rawHtml) => {
-    if (!rawHtml) return '';
-    return rawHtml
-      .replace(/url\(\s*['"]?data:(?:font|application\/font|application\/x-font)[^)'"]+['"]?\s*\)\s*(?:format\([^)]+\))?\s*,?/gi, '')
-      .replace(/@font-face\s*\{[^}]*src:\s*;?\s*[^}]*\}/gi, '');
+  // ================= ENGINE TĂNG TỐC ĐỘ TẢI FILE HTML NẶNG (INDEXEDDB) =================
+  const openIndexedDB = () =>
+    new Promise((resolve, reject) => {
+      const req = window.indexedDB.open('VyMathFastCacheDB', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('drive_files')) {
+          db.createObjectStore('drive_files');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+
+  const getCachedFileFromIDB = async (fileId) => {
+    try {
+      const db = await openIndexedDB();
+      return await new Promise((resolve) => {
+        const tx = db.transaction('drive_files', 'readonly');
+        const req = tx.objectStore('drive_files').get(fileId);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      });
+    } catch (e) {
+      return null;
+    }
   };
 
-  // Giải nén GZIP trực tiếp trên RAM
-  const decompressGzipBase64 = async (b64Data) => {
-    const binaryStr = window.atob(b64Data);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    const ds = new window.DecompressionStream('gzip');
-    const writer = ds.writable.getWriter();
-    writer.write(bytes);
-    writer.close();
-    return await new Response(ds.readable).text();
+  const saveCachedFileToIDB = async (fileId, content) => {
+    try {
+      const db = await openIndexedDB();
+      const tx = db.transaction('drive_files', 'readwrite');
+      tx.objectStore('drive_files').put(content, fileId);
+    } catch (e) {}
   };
 
   const fetchFromGoogleDrive = async (fileId, forceRefresh = false) => {
     if (!fileId) return '';
     if (!forceRefresh && driveContentCache[fileId]) return driveContentCache[fileId];
 
+    // 1. Lấy từ ổ cứng trình duyệt (IndexedDB) ra ngay lập tức trong 0.1 giây
+    if (!forceRefresh) {
+      const diskCached = await getCachedFileFromIDB(fileId);
+      if (diskCached) {
+        setDriveContentCache((prev) => ({ ...prev, [fileId]: diskCached }));
+        return diskCached;
+      }
+    }
+
+    // 2. Nếu mở lần đầu tiên chưa có trong máy thì mới tải từ Google Drive
     setIsLoadingDriveFile(true);
     try {
-      const supportsGzip = typeof window.DecompressionStream !== 'undefined';
-      const url = `${GAS_DRIVE_URL}?fileId=${fileId}${supportsGzip ? '&gzip=1' : ''}`;
-      const res = await fetch(url);
+      const res = await fetch(`${GAS_DRIVE_URL}?fileId=${fileId}`);
       const data = await res.json();
-
       if (data.success && data.content) {
-        const rawContent = data.isGzip
-          ? await decompressGzipBase64(data.content)
-          : data.content;
-
-        const lightContent = stripHeavyBase64Fonts(rawContent);
-        setDriveContentCache((prev) => ({ ...prev, [fileId]: lightContent }));
-        return lightContent;
+        setDriveContentCache((prev) => ({ ...prev, [fileId]: data.content }));
+        saveCachedFileToIDB(fileId, data.content);
+        return data.content;
       }
     } catch (e) {
       console.error('Lỗi tải từ Drive:', e);
@@ -2524,19 +2540,12 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   };
 
   // ================= XỬ LÝ TAB 1, 2, 3 (CÓ CHỌN UP BÊN TRƯỜNG HAY BÊN NHÀ) =================
-
-  const handleFileUploadHtml = (e) => {
+  const handleFileUploadHTML = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!newTitle) {
-      setNewTitle(file.name.replace(/\.html?$/i, ''));
-    }
+    if (!newTitle) setNewTitle(file.name.replace(/\.html?$/i, ''));
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const rawText = String(ev.target.result || '');
-      const cleanedHtml = stripHeavyBase64Fonts(rawText);
-      setHtmlContentInput(cleanedHtml);
-    };
+    reader.onload = (event) => setHtmlContentInput(event.target.result);
     reader.readAsText(file);
   };
 
