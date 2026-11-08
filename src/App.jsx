@@ -2090,6 +2090,15 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   };
 
   // Giải nén GZIP trực tiếp trên RAM (Không lưu vào ổ cứng máy tính)
+  // Hàm gọt bỏ chuỗi Font Base64 nặng hàng chục MB (Đặt ngay đây để mọi nơi đều gọi được)
+  const stripHeavyBase64Fonts = (rawHtml) => {
+    if (!rawHtml) return '';
+    return rawHtml
+      .replace(/url\(\s*['"]?data:(?:font|application\/font|application\/x-font)[^)'"]+['"]?\s*\)\s*(?:format\([^)]+\))?\s*,?/gi, '')
+      .replace(/@font-face\s*\{[^}]*src:\s*;?\s*[^}]*\}/gi, '');
+  };
+
+  // Giải nén GZIP trực tiếp trên RAM
   const decompressGzipBase64 = async (b64Data) => {
     const binaryStr = window.atob(b64Data);
     const bytes = new Uint8Array(binaryStr.length);
@@ -2107,11 +2116,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     if (!fileId) return '';
     if (!forceRefresh && driveContentCache[fileId]) return driveContentCache[fileId];
 
-    // Xóa sạch IndexedDB cũ (nếu trước đó đã lỡ lưu vào máy) để giải phóng 100% ổ cứng
-    try {
-      window.indexedDB.deleteDatabase('VyMathFastCacheDB');
-    } catch (e) {}
-
     setIsLoadingDriveFile(true);
     try {
       const supportsGzip = typeof window.DecompressionStream !== 'undefined';
@@ -2124,16 +2128,8 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
           ? await decompressGzipBase64(data.content)
           : data.content;
 
-        // Tự động gọt bỏ luôn chuỗi font base64 nặng hàng chục MB ngay khi tải về RAM
         const lightContent = stripHeavyBase64Fonts(rawContent);
-
-        // Chỉ giữ tối đa 2 bài gần nhất trong RAM, tự động xóa bài cũ khỏi RAM để máy luôn nhẹ
-        setDriveContentCache((prev) => {
-          const keys = Object.keys(prev);
-          const nextCache = keys.length >= 2 ? { [keys[keys.length - 1]]: prev[keys[keys.length - 1]] } : { ...prev };
-          nextCache[fileId] = lightContent;
-          return nextCache;
-        });
+        setDriveContentCache((prev) => ({ ...prev, [fileId]: lightContent }));
         return lightContent;
       }
     } catch (e) {
@@ -2528,15 +2524,6 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   };
 
   // ================= XỬ LÝ TAB 1, 2, 3 (CÓ CHỌN UP BÊN TRƯỜNG HAY BÊN NHÀ) =================
-  // Đọc file .html từ máy tính VÀ tự động cắt bỏ chuỗi Font Base64 rác nặng hàng chục MB
-  const stripHeavyBase64Fonts = (rawHtml) => {
-    if (!rawHtml) return '';
-    return rawHtml
-      // Xóa các chuỗi data:font/...;base64,... hoặc application/font-woff;base64,... nặng hàng MB
-      .replace(/url\(\s*['"]?data:(?:font|application\/font|application\/x-font)[^)'"]+['"]?\s*\)\s*(?:format\([^)]+\))?\s*,?/gi, '')
-      // Xóa các khối @font-face rỗng sau khi đã lọc bỏ base64
-      .replace(/@font-face\s*\{[^}]*src:\s*;?\s*[^}]*\}/gi, '');
-  };
 
   const handleFileUploadHtml = (e) => {
     const file = e.target.files[0];
