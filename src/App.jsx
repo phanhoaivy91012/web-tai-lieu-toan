@@ -3071,7 +3071,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   // ============================================================================
   if (!isTeacher && !currentStudent) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#0b1120] via-[#111827] to-[#1e1b4b] flex items-center justify-center p-4 font-sans">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-100 to-indigo-100 flex items-center justify-center p-4 font-sans">
         <div className="bg-slate-900/95 border border-slate-700/80 rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl space-y-6 text-white">
           <div className="text-center space-y-2">
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600/20 border border-blue-500/40 text-amber-400 mb-1">
@@ -3158,67 +3158,93 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   ];
 
   return (
-    <div className="min-h-screen bg-[#0f172a] pb-16 md:pb-2 font-sans text-slate-800 flex flex-col">
+    <div className="min-h-screen bg-[#f4f7fb] pb-16 md:pb-2 font-sans text-slate-800 flex flex-col">
       {/* HEADER CHÍNH */}
-      <header className="bg-[#111827] border-b border-slate-800 text-white shadow-md sticky top-0 z-30">
-        <div className="max-w-[1600px] mx-auto px-3 py-1.5 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center space-x-2">
-            <span className="bg-[#2563eb] text-white font-extrabold text-xs px-2.5 py-1 rounded-md tracking-wide uppercase">
-              TOÁN THẦY VY
-            </span>
-            <div className="hidden xl:flex items-center space-x-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700">
-              {navTabs.map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setActiveTab(t.id)}
-                    className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg font-bold text-xs transition ${
-                      activeTab === t.id 
-                        ? (t.id === 'converter' || t.id === 'students' ? 'bg-amber-500 text-slate-950 shadow' : 'bg-[#2563eb] text-white shadow') 
-                        : 'text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
+      {/* ==================== HEADER SÁNG HIỆN ĐẠI CHUẨN MẪU MỚI ==================== */}
+      <header className="bg-white/95 backdrop-blur border-b border-slate-200/80 sticky top-0 z-40 px-3 sm:px-6 py-2.5 shadow-sm">
+        <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
+          {/* Cụm Logo Pi + Tên thương hiệu */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center shadow-md shadow-blue-500/20 font-serif text-2xl font-bold">
+              π
+            </div>
+            <div>
+              <h1 className="font-extrabold text-base sm:text-lg text-slate-900 leading-tight tracking-tight">
+                Toán Thầy Vy
+              </h1>
+              <p className="text-[11px] font-medium text-slate-500">
+                Học Toán dễ dàng hơn
+              </p>
             </div>
           </div>
 
-          {/* KHU VỰC PHÂN HỆ TRƯỜNG / NHÀ & KHỐI LỚP */}
-          <div className="flex items-center gap-2">
-            {isTeacher ? (
-              <>
-                {/* Công tắc chuyển chế độ xem & quản lý Trường / Nhà cho Giáo viên */}
-                <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-700">
+          {/* Cụm Menu các Tab ở giữa */}
+          <nav className="flex items-center gap-1 sm:gap-1.5 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/60 overflow-x-auto">
+            {[
+              { id: 'lessons', label: 'Trang chủ', icon: BookOpen, show: true },
+              { id: 'documents', label: 'Tài liệu', icon: FileText, show: true },
+              { id: 'exercises', label: 'Bài tập', icon: CheckSquare, show: true },
+              { id: 'info', label: 'Thông tin', icon: Info, show: true },
+              { id: 'converter', label: 'PDF/Ảnh', icon: Sparkles, show: isTeacher },
+              { id: 'students', label: 'TK Học sinh', icon: Users, show: isTeacher }
+            ]
+              .filter((t) => t.show)
+              .map((tab) => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.id;
+                return (
                   <button
-                    onClick={() => { setSelectedCategory('school'); setActiveExercise(null); }}
-                    className={`px-2.5 py-1 rounded-md text-xs font-extrabold transition ${
-                      selectedCategory === 'school' ? 'bg-sky-500 text-slate-950 shadow' : 'text-slate-300 hover:bg-slate-800'
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition whitespace-nowrap ${
+                      active
+                        ? 'bg-white text-blue-600 shadow-sm border border-blue-100'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${active ? 'text-blue-600' : 'text-slate-500'}`} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+          </nav>
+
+          {/* Cụm nút Lớp Trường / Lớp Nhà + Chọn Khối + Tài khoản */}
+          <div className="flex flex-wrap items-center gap-2">
+            {isTeacher && (
+              <>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                  <button
+                    onClick={() => setSelectedCategory('school')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition flex items-center gap-1 ${
+                      selectedCategory === 'school'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-white'
                     }`}
                   >
                     🏫 Lớp Trường
                   </button>
                   <button
-                    onClick={() => { setSelectedCategory('home'); setActiveExercise(null); }}
-                    className={`px-2.5 py-1 rounded-md text-xs font-extrabold transition ${
-                      selectedCategory === 'home' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-300 hover:bg-slate-800'
+                    onClick={() => setSelectedCategory('home')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition flex items-center gap-1 ${
+                      selectedCategory === 'home'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-white'
                     }`}
                   >
                     🏠 Lớp Nhà
                   </button>
                 </div>
 
-                {/* Chọn Khối 10 - 11 - 12 */}
-                <div className="flex bg-slate-800/90 p-0.5 rounded-lg border border-slate-700">
-                  {GRADES.map((g) => (
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                  {[10, 11, 12, 0].map((g) => (
                     <button
                       key={g}
-                      onClick={() => { setSelectedGrade(g); setActiveExercise(null); }}
-                      className={`px-2 py-1 rounded-md text-xs font-extrabold transition ${
-                        selectedGrade === g ? 'bg-indigo-500 text-white shadow' : 'text-slate-300 hover:bg-slate-700'
+                      onClick={() => setSelectedGrade(g)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition ${
+                        selectedGrade === g
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-white'
                       }`}
                     >
                       {g === 0 ? '📂 Khác' : `K${g}`}
@@ -3226,197 +3252,262 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                   ))}
                 </div>
               </>
-            ) : (
-              /* Nhãn cố định của Học sinh đang đăng nhập (Không thể tự ý đổi sang hệ khác) */
-              <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1 rounded-xl border border-slate-700 text-xs">
-                <span className={`px-2 py-0.5 rounded font-extrabold ${
-                  currentStudent.category === 'school' ? 'bg-sky-500 text-slate-950' : 'bg-amber-500 text-slate-950'
-                }`}>
-                  {currentStudent.category === 'school' ? '🏫 Hệ Trường' : '🏠 Hệ Nhà'} • {formatGradeLabel(currentStudent.grade)}
-                </span>
-                <span className="font-bold text-white">
-                  [{currentStudent.student_code}] {currentStudent.full_name} ({currentStudent.class_name})
-                </span>
-              </div>
             )}
-          </div>
 
-          {/* NÚT BẢNG DẠY FULL & ĐĂNG XUẤT */}
-          <div className="flex items-center gap-1.5">
             {activeTab === 'lessons' && (
               <button
                 onClick={() => setIsExpandedView(!isExpandedView)}
-                className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg text-xs font-extrabold transition shadow"
+                className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition"
               >
-                {isExpandedView ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                <span className="hidden sm:inline">{isExpandedView ? 'Hiện DS Bài' : 'Bảng dạy (Full)'}</span>
+                {isExpandedView ? '◧ Hiện cột trái' : '⛶ Bảng dạy (Full)'}
               </button>
             )}
 
             <button
-              onClick={() => setShowPasswordModal(true)}
-              className="flex items-center space-x-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 px-2.5 py-1 rounded-lg text-xs font-bold shadow"
-              title="Đổi mật khẩu tài khoản đang đăng nhập"
+              onClick={() => setShowChangePassModal(true)}
+              className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 transition"
             >
-              <Key className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Đổi MK</span>
+              🔑 Đổi MK
             </button>
 
             <button
               onClick={handleLogout}
-              className="flex items-center space-x-1 bg-rose-600 hover:bg-rose-700 px-2.5 py-1 rounded-lg text-xs font-bold shadow"
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 transition flex items-center gap-1"
             >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Thoát</span>
+              <LogOut className="w-3.5 h-3.5" /> Thoát
             </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-[1600px] w-full mx-auto px-1.5 sm:px-3 py-1.5 flex-1 flex flex-col">
-        {/* ==================== TAB 1: BÀI HỌC HTML ==================== */}
+        {/* ==================== TAB 1: BÀI HỌC SLIDE (GIAO DIỆN SÁNG HIỆN ĐẠI) ==================== */}
         {activeTab === 'lessons' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 flex-1">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            {/* CỘT TRÁI: THÊM BÀI HỌC & DANH SÁCH BÀI GIẢNG */}
             {!isExpandedView && (
-              <div className="lg:col-span-3 space-y-2.5 flex flex-col">
-                {isTeacher && (
-                  <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl space-y-2.5 text-white">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-amber-400 text-xs uppercase tracking-wider flex items-center gap-1">
-                        <Plus className="w-3.5 h-3.5" /> Thêm Bài Học (Khối {selectedGrade})
-                      </h3>
-                      <button
-                        onClick={() => setActiveTab('converter')}
-                        className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] px-2 py-1 rounded-md shadow"
-                      >
-                        <Wand2 className="w-3 h-3" /> Từ PDF/Ảnh
-                      </button>
-                    </div>
-
-                    {/* Chọn up bên Trường hay bên Nhà */}
-                    <CategorySelectorPill />
-
-                    <input
-                      type="text"
-                      placeholder="Tên bài (VD: Chương V - Vectơ)"
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white"
-                    />
-                    <label className="flex items-center justify-center gap-1.5 w-full py-2 px-2 border border-dashed border-blue-400/60 bg-blue-950/40 rounded-lg text-xs font-semibold text-blue-300 cursor-pointer hover:bg-blue-900/40 transition">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span className="truncate">{htmlContentInput ? '✓ Đã nạp file HTML!' : 'Chọn file .html có sẵn'}</span>
-                      <input type="file" accept=".html,.htm" onChange={handleFileUploadHTML} className="hidden" />
-                    </label>
-                    <button
-                      onClick={addLesson}
-                      className="w-full bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-1.5 rounded-lg text-xs shadow"
-                    >
-                      Lưu Bài Học ({uploadCategory === 'school' ? 'Trường' : 'Nhà'})
-                    </button>
-                  </div>
-                )}
-
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 space-y-2 flex-1 overflow-y-auto max-h-[82vh]">
-                  <div className="flex items-center justify-between px-1">
-                    <h2 className="font-bold text-slate-300 text-xs uppercase tracking-wider">
-                      {effectiveCategory === 'school' ? '🏫 Bài giảng Trường' : '🏠 Bài giảng Nhà'} • K{effectiveGrade} ({lessons.length})
-                    </h2>
-                  </div>
-                  {lessons.length === 0 && (
-                    <p className="text-xs text-slate-500 p-4 text-center">Chưa có bài học nào trong phân hệ này.</p>
-                  )}
-                  {lessons.map((item) => (
-                    <div
-                      key={item.id}
-                      onClick={() => setSelectedLesson(item)}
-                      className={`p-2.5 rounded-xl border transition cursor-pointer ${
-                        selectedLesson?.id === item.id 
-                          ? 'bg-[#1e293b] border-blue-500 shadow-md' 
-                          : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/80'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-bold text-xs sm:text-sm text-white truncate">{item.title}</span>
-                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                          item.show_answers ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                        }`}>
-                          {item.show_answers ? 'Mở ĐA' : 'Khóa ĐA'}
-                        </span>
+              <div className="lg:col-span-3 space-y-4 bg-white p-4 rounded-3xl shadow-sm border border-slate-200/80 flex flex-col justify-between min-h-[calc(100vh-88px)] relative overflow-hidden">
+                <div className="space-y-4 relative z-10">
+                  {isTeacher && (
+                    <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                            +
+                          </span>
+                          <h3 className="font-extrabold text-slate-800 text-xs sm:text-sm">
+                            Thêm bài học ({selectedGrade === 0 ? 'Khác' : `Khối ${selectedGrade}`})
+                          </h3>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab('converter')}
+                          className="text-[11px] bg-amber-100 hover:bg-amber-200 text-amber-800 font-extrabold px-2.5 py-1 rounded-lg transition"
+                        >
+                          ✨ Từ PDF/Ảnh
+                        </button>
                       </div>
 
-                      {isTeacher && (
-                        <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700 text-[11px]" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => toggleLessonStatus(item, 'is_active')}
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded font-bold ${
-                              item.is_active ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300'
-                            }`}
-                          >
-                            {item.is_active ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                            {item.is_active ? 'Hiện' : 'Ẩn'}
-                          </button>
-
-                          <button
-                            onClick={() => toggleLessonStatus(item, 'show_answers')}
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded font-bold ${
-                              item.show_answers ? 'bg-amber-500 text-slate-950' : 'bg-slate-700 text-slate-300'
-                            }`}
-                          >
-                            <Key className="w-3 h-3" />
-                            {item.show_answers ? 'Đáp án: BẬT' : 'Đáp án: TẮT'}
-                          </button>
-
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => handleRenameItemSyncDrive('lessons', item, '.html')}
-                              className="text-sky-400 hover:bg-sky-950 px-1.5 py-0.5 rounded font-bold"
-                              title="Đổi tên bài học trên Web & Google Drive"
-                            >
-                              ✏️ Sửa tên
-                            </button>
-                            <button
-                              onClick={() => handleDeleteItemSyncDrive('lessons', item)}
-                              className="text-rose-400 hover:bg-rose-950 p-1 rounded"
-                              title="Xóa bài học trên Web & Google Drive"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                      {/* 3 Ô chọn Phân hệ dạng Thẻ vuông như ảnh mẫu */}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="bg-white border border-slate-200 rounded-xl p-2 text-center flex flex-col items-center justify-center">
+                          <span className="text-blue-600 text-sm">📁</span>
+                          <span className="text-[10px] font-semibold text-slate-500 leading-tight mt-1">
+                            Đăng vào phần
+                          </span>
                         </div>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => setUploadCategory('school')}
+                          className={`rounded-xl p-2 text-center flex flex-col items-center justify-center border transition ${
+                            uploadCategory === 'school'
+                              ? 'bg-blue-50 border-blue-500 text-blue-700 font-extrabold shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="text-sm">🏫</span>
+                          <span className="text-[11px] leading-tight mt-1">Lớp Trường</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUploadCategory('home')}
+                          className={`rounded-xl p-2 text-center flex flex-col items-center justify-center border transition ${
+                            uploadCategory === 'home'
+                              ? 'bg-blue-50 border-blue-500 text-blue-700 font-extrabold shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="text-sm">🏠</span>
+                          <span className="text-[11px] leading-tight mt-1">Lớp Nhà</span>
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-600 block">
+                          Tên bài (VD: Chương V - Vectơ)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Nhập tên bài giảng..."
+                          value={newTitle}
+                          onChange={(e) => setNewTitle(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs sm:text-sm text-slate-800 outline-none"
+                        />
+                      </div>
+
+                      <label className="flex items-center justify-center gap-2 w-full py-2 px-3 bg-white hover:bg-blue-50/50 text-slate-600 border border-dashed border-slate-300 hover:border-blue-400 rounded-xl text-xs font-bold cursor-pointer transition">
+                        <Upload className="w-3.5 h-3.5 text-blue-600" />
+                        <span className="truncate">
+                          {htmlContentInput ? '✓ Đã nạp file .html' : 'Chọn file .html có sẵn'}
+                        </span>
+                        <input
+                          type="file"
+                          accept=".html,.htm"
+                          onChange={handleFileUploadHtml}
+                          className="hidden"
+                        />
+                      </label>
+
+                      <button
+                        onClick={addLesson}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2.5 rounded-xl text-xs sm:text-sm shadow-md shadow-blue-500/20 transition flex items-center justify-center gap-1.5"
+                      >
+                        <span>▶</span> Lưu Bài Học ({uploadCategory === 'school' ? 'Trường' : 'Nhà'})
+                      </button>
                     </div>
-                  ))}
+                  )}
+
+                  {/* DANH SÁCH BÀI GIẢNG */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2 px-1">
+                      <BookOpen className="w-4 h-4 text-slate-700" />
+                      <h2 className="font-extrabold text-slate-800 text-xs sm:text-sm">
+                        Bài Giảng {effectiveCategory === 'school' ? 'Trường' : 'Nhà'} - {effectiveGrade === 0 ? 'Khác' : `K${effectiveGrade}`} ({lessons.length})
+                      </h2>
+                    </div>
+
+                    <div className="space-y-2.5 max-h-[42vh] overflow-y-auto pr-1">
+                      {lessons.length === 0 && (
+                        <p className="text-xs text-slate-400 text-center py-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                          Chưa có bài giảng nào trong mục này.
+                        </p>
+                      )}
+                      {lessons.map((les) => {
+                        const isSelected = selectedLesson?.id === les.id;
+                        return (
+                          <div
+                            key={les.id}
+                            onClick={() => setSelectedLesson(les)}
+                            className={`p-3 rounded-2xl border transition cursor-pointer ${
+                              isSelected
+                                ? 'bg-blue-50/70 border-blue-400 shadow-sm'
+                                : 'bg-white hover:bg-slate-50 border-slate-200/90'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <h4 className="font-extrabold text-xs sm:text-sm text-slate-800 leading-snug break-words">
+                                {les.title}
+                              </h4>
+                              <span
+                                className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full shrink-0 ${
+                                  les.show_answers
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {les.show_answers ? 'Mở ĐÁ' : 'Khóa ĐÁ'}
+                              </span>
+                            </div>
+
+                            {isTeacher && (
+                              <div
+                                className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-100"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  onClick={() => toggleLessonStatus(les, 'is_active')}
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 ${
+                                    les.is_active
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : 'bg-slate-100 text-slate-500'
+                                  }`}
+                                >
+                                  {les.is_active ? '👁️ Hiện' : '🙈 Ẩn'}
+                                </button>
+
+                                <button
+                                  onClick={() => toggleLessonStatus(les, 'show_answers')}
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-bold ${
+                                    les.show_answers
+                                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                      : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                  }`}
+                                >
+                                  Đáp án: {les.show_answers ? 'BẬT' : 'TẮT'}
+                                </button>
+
+                                <button
+                                  onClick={() => handleRenameItemSyncDrive('lessons', les, '.html')}
+                                  className="px-2 py-1 rounded-lg text-[11px] font-bold bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200"
+                                >
+                                  ✏️ Sửa tên
+                                </button>
+
+                                <button
+                                  onClick={() => handleDeleteItemSyncDrive('lessons', les)}
+                                  className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 ml-auto"
+                                  title="Xóa bài học"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* HÌNH VẼ TRANG TRÍ TOÁN HỌC MỜ Ở ĐÁY CỘT TRÁI NHƯ ẢNH MẪU */}
+                <div className="pt-4 opacity-40 pointer-events-none select-none flex flex-col items-center">
+                  <svg viewBox="0 0 220 150" className="w-44 h-auto text-slate-400">
+                    <line x1="20" y1="110" x2="200" y2="110" stroke="currentColor" strokeWidth="1.5" />
+                    <line x1="60" y1="140" x2="60" y2="15" stroke="currentColor" strokeWidth="1.5" />
+                    <circle cx="95" cy="75" r="38" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                    <line x1="60" y1="110" x2="145" y2="40" stroke="currentColor" strokeWidth="1.5" />
+                    <text x="52" y="18" fontSize="11" fill="currentColor" fontStyle="italic">y</text>
+                    <text x="192" y="124" fontSize="11" fill="currentColor" fontStyle="italic">x</text>
+                    <text x="75" y="142" fontSize="16" fill="currentColor" fontFamily="serif" fontStyle="italic">
+                      a² + b² = c²
+                    </text>
+                  </svg>
                 </div>
               </div>
             )}
 
+            {/* CỘT PHẢI: KHUNG HIỂN THỊ BÀI GIẢNG TRẮNG SÁNG HIỆN ĐẠI */}
             <div className={isExpandedView ? 'lg:col-span-12' : 'lg:col-span-9'}>
               {selectedLesson ? (
-                <div className="bg-[#0b1120] rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-58px)] relative">
-                  {iframeBlobUrl ? (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden flex flex-col h-[calc(100vh-88px)]">
+                  {(selectedLesson.html_cache || driveContentCache[selectedLesson.drive_file_id]) ? (
                     <iframe
-                      key={iframeBlobUrl}
-                      src={iframeBlobUrl}
+                      key={`${selectedLesson.id}-${selectedLesson.show_answers}`}
+                      srcDoc={getRenderedHtml(selectedLesson)}
                       title={selectedLesson.title}
                       className="w-full flex-1 border-0 bg-white"
-                      sandbox="allow-scripts allow-same-origin allow-modals allow-popups"
+                      sandbox="allow-scripts allow-same-origin allow-modals"
                     />
                   ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-3 text-white p-6">
-                      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                      <p className="font-extrabold text-sm sm:text-base text-amber-400">
-                        ⚡ Đang nạp bài giảng "{selectedLesson.title}"...
-                      </p>
-                      <p className="text-xs text-slate-400 text-center max-w-md">
-                        File dung lượng lớn chỉ cần nạp lần đầu tiên. Các lần mở sau sẽ hiển thị tức thì trong 0.2 giây!
-                      </p>
-                    </div>
+                    <iframe
+                      src={`https://drive.google.com/file/d/${selectedLesson.drive_file_id}/preview`}
+                      title={selectedLesson.title}
+                      className="w-full flex-1 border-0 bg-white"
+                    />
                   )}
                 </div>
               ) : (
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center text-slate-400">
-                  Chọn một bài giảng bên trái để bắt đầu trình chiếu.
+                <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-500 shadow-sm">
+                  Chọn một bài giảng ở danh sách bên trái để bắt đầu học tập hoặc trình chiếu.
                 </div>
               )}
             </div>
