@@ -2089,64 +2089,52 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
     }
   };
 
-  // ================= ENGINE TĂNG TỐC ĐỘ TẢI FILE HTML NẶNG (INDEXEDDB) =================
-  const openIndexedDB = () =>
-    new Promise((resolve, reject) => {
-      const req = window.indexedDB.open('VyMathFastCacheDB', 1);
-      req.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('drive_files')) {
-          db.createObjectStore('drive_files');
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-
-  const getCachedFileFromIDB = async (fileId) => {
-    try {
-      const db = await openIndexedDB();
-      return await new Promise((resolve) => {
-        const tx = db.transaction('drive_files', 'readonly');
-        const req = tx.objectStore('drive_files').get(fileId);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => resolve(null);
-      });
-    } catch (e) {
-      return null;
+  // Giải nén GZIP trực tiếp trên RAM (Không lưu vào ổ cứng máy tính)
+  const decompressGzipBase64 = async (b64Data) => {
+    const binaryStr = window.atob(b64Data);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
     }
-  };
-
-  const saveCachedFileToIDB = async (fileId, content) => {
-    try {
-      const db = await openIndexedDB();
-      const tx = db.transaction('drive_files', 'readwrite');
-      tx.objectStore('drive_files').put(content, fileId);
-    } catch (e) {}
+    const ds = new window.DecompressionStream('gzip');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    return await new Response(ds.readable).text();
   };
 
   const fetchFromGoogleDrive = async (fileId, forceRefresh = false) => {
     if (!fileId) return '';
     if (!forceRefresh && driveContentCache[fileId]) return driveContentCache[fileId];
 
-    // 1. Lấy từ ổ cứng trình duyệt (IndexedDB) ra ngay lập tức trong 0.1 giây
-    if (!forceRefresh) {
-      const diskCached = await getCachedFileFromIDB(fileId);
-      if (diskCached) {
-        setDriveContentCache((prev) => ({ ...prev, [fileId]: diskCached }));
-        return diskCached;
-      }
-    }
+    // Xóa sạch IndexedDB cũ (nếu trước đó đã lỡ lưu vào máy) để giải phóng 100% ổ cứng
+    try {
+      window.indexedDB.deleteDatabase('VyMathFastCacheDB');
+    } catch (e) {}
 
-    // 2. Nếu mở lần đầu tiên chưa có trong máy thì mới tải từ Google Drive
     setIsLoadingDriveFile(true);
     try {
-      const res = await fetch(`${GAS_DRIVE_URL}?fileId=${fileId}`);
+      const supportsGzip = typeof window.DecompressionStream !== 'undefined';
+      const url = `${GAS_DRIVE_URL}?fileId=${fileId}${supportsGzip ? '&gzip=1' : ''}`;
+      const res = await fetch(url);
       const data = await res.json();
+
       if (data.success && data.content) {
-        setDriveContentCache((prev) => ({ ...prev, [fileId]: data.content }));
-        saveCachedFileToIDB(fileId, data.content);
-        return data.content;
+        const rawContent = data.isGzip
+          ? await decompressGzipBase64(data.content)
+          : data.content;
+
+        // Tự động gọt bỏ luôn chuỗi font base64 nặng hàng chục MB ngay khi tải về RAM
+        const lightContent = stripHeavyBase64Fonts(rawContent);
+
+        // Chỉ giữ tối đa 2 bài gần nhất trong RAM, tự động xóa bài cũ khỏi RAM để máy luôn nhẹ
+        setDriveContentCache((prev) => {
+          const keys = Object.keys(prev);
+          const nextCache = keys.length >= 2 ? { [keys[keys.length - 1]]: prev[keys[keys.length - 1]] } : { ...prev };
+          nextCache[fileId] = lightContent;
+          return nextCache;
+        });
+        return lightContent;
       }
     } catch (e) {
       console.error('Lỗi tải từ Drive:', e);
@@ -2540,12 +2528,28 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   };
 
   // ================= XỬ LÝ TAB 1, 2, 3 (CÓ CHỌN UP BÊN TRƯỜNG HAY BÊN NHÀ) =================
-  const handleFileUploadHTML = (e) => {
+  // Đọc file .html từ máy tính VÀ tự động cắt bỏ chuỗi Font Base64 rác nặng hàng chục MB
+  const stripHeavyBase64Fonts = (rawHtml) => {
+    if (!rawHtml) return '';
+    return rawHtml
+      // Xóa các chuỗi data:font/...;base64,... hoặc application/font-woff;base64,... nặng hàng MB
+      .replace(/url\(\s*['"]?data:(?:font|application\/font|application\/x-font)[^)'"]+['"]?\s*\)\s*(?:format\([^)]+\))?\s*,?/gi, '')
+      // Xóa các khối @font-face rỗng sau khi đã lọc bỏ base64
+      .replace(/@font-face\s*\{[^}]*src:\s*;?\s*[^}]*\}/gi, '');
+  };
+
+  const handleFileUploadHtml = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!newTitle) setNewTitle(file.name.replace(/\.html?$/i, ''));
+    if (!newTitle) {
+      setNewTitle(file.name.replace(/\.html?$/i, ''));
+    }
     const reader = new FileReader();
-    reader.onload = (event) => setHtmlContentInput(event.target.result);
+    reader.onload = (ev) => {
+      const rawText = String(ev.target.result || '');
+      const cleanedHtml = stripHeavyBase64Fonts(rawText);
+      setHtmlContentInput(cleanedHtml);
+    };
     reader.readAsText(file);
   };
 
