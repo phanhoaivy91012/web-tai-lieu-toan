@@ -123,8 +123,20 @@ const TABLET_PRO_DRAWING_INJECTION = `
         '<button id="qbtn-down" class="tb-quick-btn" title="Cuộn xuống viết tiếp"><span>▼</span><span class="lbl">Xuống</span></button>' +
         '<button id="qbtn-undo" class="tb-quick-btn" title="Hoàn tác"><span>↩️</span><span class="lbl">Lùi</span></button>' +
         '<div style="height:1px;background:#334155;margin:2px 0;"></div>' +
-        '<button id="qbtn-save" class="tb-quick-btn save-btn" title="Lưu toàn bộ nét viết thẳng vào file HTML trên Google Drive"><span>💾</span><span class="lbl">Lưu Drive</span></button>';
+        (window.IS_TEACHER_VIEW
+          ? '<button id="qbtn-save" class="tb-quick-btn save-btn" title="Lưu toàn bộ nét viết thẳng vào file HTML trên Google Drive"><span>💾</span><span class="lbl">Lưu Drive</span></button>'
+          : '<button id="qbtn-save" class="tb-quick-btn save-btn" title="Xuất bài giảng kèm nét ghi chú của em ra file PDF cá nhân"><span>📄</span><span class="lbl">Xuất PDF</span></button>');
       document.body.appendChild(helper);
+
+      // Nếu là Học sinh: Ẩn luôn các nút "Lưu Drive" / "Đã lưu" mặc định trên thanh ngang (nếu có trong file HTML)
+      if (!window.IS_TEACHER_VIEW) {
+        document.querySelectorAll('button, a, span').forEach(function(el) {
+          var txt = (el.textContent || '').trim();
+          if ((txt === 'Lưu Drive' || txt === 'Đã lưu') && el.id !== 'qbtn-save') {
+            el.style.display = 'none';
+          }
+        });
+      }
 
       var syncQuickHighlight = function(tool) {
         ['pen', 'eraser', 'cursor'].forEach(function(t) {
@@ -164,8 +176,35 @@ const TABLET_PRO_DRAWING_INJECTION = `
         }
       };
 
-      // KHI BẤM NÚT "💾 LƯU DRIVE": GỬI TOÀN BỘ MẢNG SLIDEDRAWINGS RA NGOÀI APP REACT ĐỂ GHI ĐÈ LÊN DRIVE
+      // XỬ LÝ NÚT BẤM THEO QUYỀN: GIÁO VIÊN -> LƯU DRIVE | HỌC SINH -> XUẤT FILE PDF CÁ NHÂN
       document.getElementById('qbtn-save').onclick = function() {
+        if (!window.IS_TEACHER_VIEW) {
+          // 1. Nếu file HTML của thầy có sẵn hàm xuất PDF (exportToPDF / printPDF) thì ưu tiên gọi
+          if (typeof window.exportToPDF === 'function') { window.exportToPDF(); return; }
+          if (typeof window.exportPDF === 'function') { window.exportPDF(); return; }
+          if (typeof window.printPDF === 'function') { window.printPDF(); return; }
+
+          // 2. Nếu có nút "Xuất PDF" trên thanh công cụ ngang của bài giảng thì kích hoạt nút đó
+          var topBtns = Array.from(document.querySelectorAll('button, a'));
+          var builtInPdfBtn = topBtns.find(function(b) {
+            return b.id !== 'qbtn-save' && /xuất\s*pdf|in\s*pdf/i.test(b.textContent || '');
+          });
+          if (builtInPdfBtn) {
+            builtInPdfBtn.click();
+            return;
+          }
+
+          // 3. Nếu bài giảng không có nút Xuất PDF riêng -> Mở hộp thoại xuất PDF trang bài viết hiện tại (kèm toàn bộ nét bút trên bảng vẽ)
+          var helperEl = document.getElementById('tablet-quick-helper');
+          if (helperEl) helperEl.style.display = 'none';
+          window.print();
+          setTimeout(function() {
+            if (helperEl) helperEl.style.display = 'flex';
+          }, 500);
+          return;
+        }
+
+        // DÀNH RIÊNG CHO GIÁO VIÊN: GỬI NÉT VIẾT RA NGOÀI ĐỂ GHI ĐÈ LÊN GOOGLE DRIVE
         if (typeof slideDrawings === 'undefined') {
           alert('File HTML này không có bộ nhớ bảng vẽ slideDrawings!');
           return;
@@ -2167,7 +2206,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
  useEffect(() => {
     const handleMessageFromIframe = async (event) => {
       if (!event.data || event.data.type !== 'VY_SAVE_SLIDE_DRAWINGS') return;
-      if (!isTeacher) return alert('Đã lưu nháp nét viết trên thiết bị của em!');
+      if (!isTeacher) return; // Học sinh tuyệt đối không có quyền can thiệp dữ liệu file gốc
       if (!selectedLesson) return;
 
       const drawingsData = event.data.drawings;
@@ -2625,7 +2664,22 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       </style>
     `;
 
-    const fullInjectedCode = TABLET_PRO_DRAWING_INJECTION + autoSaveBridgeCode + lockAnswerCode;
+    // Truyền cờ phân quyền Giáo viên / Học sinh + CSS hỗ trợ Học sinh xuất PDF sạch đẹp
+    const roleFlagScript = `
+      <script>window.IS_TEACHER_VIEW = ${isTeacher ? 'true' : 'false'};</script>
+      <style>
+        @media print {
+          #tablet-quick-helper, header, footer { display: none !important; }
+          body, main, #slide-card, #slide-content-scroll {
+            height: auto !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+          }
+        }
+      </style>
+    `;
+
+    const fullInjectedCode = roleFlagScript + TABLET_PRO_DRAWING_INJECTION + autoSaveBridgeCode + lockAnswerCode;
     if (rawHtml.includes('</body>')) {
       return rawHtml.replace('</body>', `${fullInjectedCode}</body>`);
     }
@@ -2649,7 +2703,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     setIframeBlobUrl(url);
 
     return () => URL.revokeObjectURL(url);
-  }, [selectedLesson?.id, selectedLesson?.show_answers, rawActiveHtml]);
+  }, [selectedLesson?.id, selectedLesson?.show_answers, rawActiveHtml, isTeacher]);
 
   // Chọn file PDF / Word / Tài liệu trực tiếp từ máy tính
   const handleFileUploadDocument = (e) => {
