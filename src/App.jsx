@@ -3039,16 +3039,16 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       fetchData();
     }
   };
-  // Component chọn nhanh Up bên Trường hay bên Nhà cho Giáo viên
+  // Component chọn nhanh Up bên Trường hay bên Nhà cho Giáo viên (Giao diện Sáng)
   const CategorySelectorPill = () => (
-    <div className="flex items-center justify-between bg-slate-950/90 p-1.5 rounded-xl border border-slate-700 text-xs">
-      <span className="text-slate-400 font-semibold pl-2">Đăng vào phân hệ:</span>
+    <div className="flex items-center justify-between bg-slate-100 p-1.5 rounded-xl border border-slate-200 text-xs">
+      <span className="text-slate-600 font-bold pl-2">Đăng vào phân hệ:</span>
       <div className="flex gap-1">
         <button
           type="button"
           onClick={() => setUploadCategory('school')}
           className={`px-3 py-1 rounded-lg font-extrabold transition ${
-            uploadCategory === 'school' ? 'bg-sky-500 text-slate-950 shadow' : 'text-slate-400 hover:bg-slate-800'
+            uploadCategory === 'school' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'
           }`}
         >
           🏫 Lớp Trường
@@ -3057,7 +3057,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           type="button"
           onClick={() => setUploadCategory('home')}
           className={`px-3 py-1 rounded-lg font-extrabold transition ${
-            uploadCategory === 'home' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:bg-slate-800'
+            uploadCategory === 'home' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-600 hover:bg-white'
           }`}
         >
           🏠 Lớp Nhà
@@ -3071,23 +3071,23 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   // ============================================================================
   if (!isTeacher && !currentStudent) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#0b1120] via-[#111827] to-[#1e1b4b] flex items-center justify-center p-4 font-sans">
-        <div className="bg-slate-900/95 border border-slate-700/80 rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl space-y-6 text-white">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50/60 to-indigo-100/70 flex items-center justify-center p-4 font-sans">
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-xl space-y-6 text-slate-800">
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600/20 border border-blue-500/40 text-amber-400 mb-1">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-500/20 mb-1">
               <BookOpen className="w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-white">LỚP TOÁN THẦY VY</h1>
-            <p className="text-xs text-slate-400">Đăng nhập để truy cập Bài giảng, Tài liệu & Bài tập theo lớp</p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">LỚP TOÁN THẦY VY</h1>
+            <p className="text-xs text-slate-500 font-medium">Đăng nhập để truy cập Bài giảng, Tài liệu & Bài tập theo lớp</p>
           </div>
 
           {/* Chuyển chế độ Đăng nhập Học sinh / Giáo viên */}
-          <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+          <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
             <button
               type="button"
               onClick={() => { setLoginMode('student'); setLoginId(''); setPassword(''); }}
               className={`py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition ${
-                loginMode === 'student' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
+                loginMode === 'student' ? 'bg-white text-blue-700 shadow-sm border border-slate-200/80' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               🎓 Học sinh Đăng nhập
@@ -3096,7 +3096,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
               type="button"
               onClick={() => { setLoginMode('teacher'); setLoginId(''); setPassword(''); }}
               className={`py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition ${
-                loginMode === 'teacher' ? 'bg-[#2563eb] text-white shadow-md' : 'text-slate-400 hover:text-white'
+                loginMode === 'teacher' ? 'bg-[#2563eb] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               👨‍🏫 Giáo viên Quản trị
@@ -3105,38 +3105,34 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
           <form onSubmit={handleUnifiedLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                {loginMode === 'student' ? 'Mã số Học sinh (3 chữ số, VD: 001):' : 'Email Giáo viên:'}
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                {loginMode === 'student' ? 'Mã số Học sinh (VD: 0001):' : 'Email Giáo viên:'}
               </label>
               <input
                 type={loginMode === 'student' ? 'text' : 'email'}
                 required
-                placeholder={loginMode === 'student' ? 'Nhập mã học sinh (VD: 001)...' : 'Nhập email giáo viên...'}
+                placeholder={loginMode === 'student' ? 'Nhập mã học sinh (VD: 0001)...' : 'Nhập email giáo viên...'}
                 value={loginId}
                 onChange={(e) => setLoginId(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:border-blue-500 outline-none"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:border-blue-600 outline-none font-medium"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">Mật khẩu:</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Mật khẩu:</label>
               <input
                 type="password"
                 required
                 placeholder="Nhập mật khẩu..."
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:border-blue-500 outline-none"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:border-blue-600 outline-none font-medium"
               />
             </div>
 
             <button
               type="submit"
-              className={`w-full py-3.5 rounded-xl font-extrabold text-sm shadow-lg transition ${
-                loginMode === 'student' 
-                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' 
-                  : 'bg-[#2563eb] hover:bg-blue-600 text-white'
-              }`}
+              className="w-full py-3.5 rounded-xl font-extrabold text-sm shadow-md transition bg-[#2563eb] hover:bg-blue-700 text-white"
             >
               {loginMode === 'student' ? 'Vào Lớp Học Ngay →' : 'Đăng Nhập Quyền Giáo Viên →'}
             </button>
@@ -3158,25 +3154,25 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   ];
 
   return (
-    <div className="min-h-screen bg-[#0f172a] pb-16 md:pb-2 font-sans text-slate-800 flex flex-col">
-      {/* HEADER CHÍNH */}
-      <header className="bg-[#111827] border-b border-slate-800 text-white shadow-md sticky top-0 z-30">
-        <div className="max-w-[1600px] mx-auto px-3 py-1.5 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center space-x-2">
-            <span className="bg-[#2563eb] text-white font-extrabold text-xs px-2.5 py-1 rounded-md tracking-wide uppercase">
-              TOÁN THẦY VY
+    <div className="min-h-screen bg-[#f1f5f9] pb-16 md:pb-2 font-sans text-slate-800 flex flex-col">
+      {/* HEADER CHÍNH MÀU TRẮNG SÁNG DỄ NHÌN */}
+      <header className="bg-white border-b border-slate-200 text-slate-800 shadow-sm sticky top-0 z-30">
+        <div className="max-w-[1600px] mx-auto px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center space-x-2.5">
+            <span className="bg-[#2563eb] text-white font-extrabold text-xs px-3 py-1.5 rounded-lg tracking-wide uppercase shadow-sm">
+              π TOÁN THẦY VY
             </span>
-            <div className="hidden xl:flex items-center space-x-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700">
+            <div className="hidden xl:flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
               {navTabs.map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
                     key={t.id}
                     onClick={() => setActiveTab(t.id)}
-                    className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg font-bold text-xs transition ${
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-bold text-xs transition ${
                       activeTab === t.id 
-                        ? (t.id === 'converter' || t.id === 'students' ? 'bg-amber-500 text-slate-950 shadow' : 'bg-[#2563eb] text-white shadow') 
-                        : 'text-slate-300 hover:bg-slate-700'
+                        ? 'bg-[#2563eb] text-white shadow-sm' 
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -3191,34 +3187,32 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           <div className="flex items-center gap-2">
             {isTeacher ? (
               <>
-                {/* Công tắc chuyển chế độ xem & quản lý Trường / Nhà cho Giáo viên */}
-                <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-700">
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
                   <button
                     onClick={() => { setSelectedCategory('school'); setActiveExercise(null); }}
-                    className={`px-2.5 py-1 rounded-md text-xs font-extrabold transition ${
-                      selectedCategory === 'school' ? 'bg-sky-500 text-slate-950 shadow' : 'text-slate-300 hover:bg-slate-800'
+                    className={`px-3 py-1 rounded-lg text-xs font-extrabold transition ${
+                      selectedCategory === 'school' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'
                     }`}
                   >
                     🏫 Lớp Trường
                   </button>
                   <button
                     onClick={() => { setSelectedCategory('home'); setActiveExercise(null); }}
-                    className={`px-2.5 py-1 rounded-md text-xs font-extrabold transition ${
-                      selectedCategory === 'home' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-300 hover:bg-slate-800'
+                    className={`px-3 py-1 rounded-lg text-xs font-extrabold transition ${
+                      selectedCategory === 'home' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'text-slate-600 hover:bg-white'
                     }`}
                   >
                     🏠 Lớp Nhà
                   </button>
                 </div>
 
-                {/* Chọn Khối 10 - 11 - 12 */}
-                <div className="flex bg-slate-800/90 p-0.5 rounded-lg border border-slate-700">
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
                   {GRADES.map((g) => (
                     <button
                       key={g}
                       onClick={() => { setSelectedGrade(g); setActiveExercise(null); }}
-                      className={`px-2 py-1 rounded-md text-xs font-extrabold transition ${
-                        selectedGrade === g ? 'bg-indigo-500 text-white shadow' : 'text-slate-300 hover:bg-slate-700'
+                      className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition ${
+                        selectedGrade === g ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'
                       }`}
                     >
                       {g === 0 ? '📂 Khác' : `K${g}`}
@@ -3227,14 +3221,13 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                 </div>
               </>
             ) : (
-              /* Nhãn cố định của Học sinh đang đăng nhập (Không thể tự ý đổi sang hệ khác) */
-              <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1 rounded-xl border border-slate-700 text-xs">
+              <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 text-xs">
                 <span className={`px-2 py-0.5 rounded font-extrabold ${
-                  currentStudent.category === 'school' ? 'bg-sky-500 text-slate-950' : 'bg-amber-500 text-slate-950'
+                  currentStudent.category === 'school' ? 'bg-blue-600 text-white' : 'bg-amber-500 text-slate-950'
                 }`}>
                   {currentStudent.category === 'school' ? '🏫 Hệ Trường' : '🏠 Hệ Nhà'} • {formatGradeLabel(currentStudent.grade)}
                 </span>
-                <span className="font-bold text-white">
+                <span className="font-bold text-slate-800">
                   [{currentStudent.student_code}] {currentStudent.full_name} ({currentStudent.class_name})
                 </span>
               </div>
@@ -3246,7 +3239,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
             {activeTab === 'lessons' && (
               <button
                 onClick={() => setIsExpandedView(!isExpandedView)}
-                className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg text-xs font-extrabold transition shadow"
+                className="flex items-center gap-1 bg-amber-400 hover:bg-amber-500 text-slate-950 px-3 py-1.5 rounded-lg text-xs font-extrabold transition shadow-sm"
               >
                 {isExpandedView ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                 <span className="hidden sm:inline">{isExpandedView ? 'Hiện DS Bài' : 'Bảng dạy (Full)'}</span>
@@ -3255,16 +3248,16 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
             <button
               onClick={() => setShowPasswordModal(true)}
-              className="flex items-center space-x-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 px-2.5 py-1 rounded-lg text-xs font-bold shadow"
+              className="flex items-center space-x-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-bold transition"
               title="Đổi mật khẩu tài khoản đang đăng nhập"
             >
-              <Key className="w-3.5 h-3.5" />
+              <Key className="w-3.5 h-3.5 text-amber-600" />
               <span className="hidden sm:inline">Đổi MK</span>
             </button>
 
             <button
               onClick={handleLogout}
-              className="flex items-center space-x-1 bg-rose-600 hover:bg-rose-700 px-2.5 py-1 rounded-lg text-xs font-bold shadow"
+              className="flex items-center space-x-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-2.5 py-1.5 rounded-lg text-xs font-bold transition"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Thoát</span>
@@ -3273,27 +3266,26 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
         </div>
       </header>
 
-      <main className="max-w-[1600px] w-full mx-auto px-1.5 sm:px-3 py-1.5 flex-1 flex flex-col">
-        {/* ==================== TAB 1: BÀI HỌC HTML ==================== */}
+      <main className="max-w-[1600px] w-full mx-auto px-2 sm:px-4 py-2.5 flex-1 flex flex-col">
+        {/* ==================== TAB 1: BÀI HỌC HTML (GIAO DIỆN XÁM TRẮNG DỄ NHÌN) ==================== */}
         {activeTab === 'lessons' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 flex-1">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
             {!isExpandedView && (
-              <div className="lg:col-span-3 space-y-2.5 flex flex-col">
+              <div className="lg:col-span-3 space-y-3 flex flex-col">
                 {isTeacher && (
-                  <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl space-y-2.5 text-white">
+                  <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-sm space-y-2.5 text-slate-800">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-amber-400 text-xs uppercase tracking-wider flex items-center gap-1">
-                        <Plus className="w-3.5 h-3.5" /> Thêm Bài Học (Khối {selectedGrade})
+                      <h3 className="font-extrabold text-blue-700 text-xs uppercase tracking-wider flex items-center gap-1">
+                        <Plus className="w-4 h-4" /> Thêm Bài Học ({selectedGrade === 0 ? 'Khác' : `Khối ${selectedGrade}`})
                       </h3>
                       <button
                         onClick={() => setActiveTab('converter')}
-                        className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] px-2 py-1 rounded-md shadow"
+                        className="flex items-center gap-1 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 font-extrabold text-[11px] px-2.5 py-1 rounded-lg transition"
                       >
                         <Wand2 className="w-3 h-3" /> Từ PDF/Ảnh
                       </button>
                     </div>
 
-                    {/* Chọn up bên Trường hay bên Nhà */}
                     <CategorySelectorPill />
 
                     <input
@@ -3301,56 +3293,62 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       placeholder="Tên bài (VD: Chương V - Vectơ)"
                       value={newTitle}
                       onChange={(e) => setNewTitle(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 focus:bg-white focus:border-blue-500 rounded-xl text-xs text-slate-800 font-medium outline-none"
                     />
-                    <label className="flex items-center justify-center gap-1.5 w-full py-2 px-2 border border-dashed border-blue-400/60 bg-blue-950/40 rounded-lg text-xs font-semibold text-blue-300 cursor-pointer hover:bg-blue-900/40 transition">
+                    <label className="flex items-center justify-center gap-1.5 w-full py-2 px-2.5 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl text-xs font-bold text-blue-700 cursor-pointer hover:bg-blue-100/60 transition">
                       <Upload className="w-3.5 h-3.5" />
                       <span className="truncate">{htmlContentInput ? '✓ Đã nạp file HTML!' : 'Chọn file .html có sẵn'}</span>
                       <input type="file" accept=".html,.htm" onChange={handleFileUploadHTML} className="hidden" />
                     </label>
                     <button
                       onClick={addLesson}
-                      className="w-full bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-1.5 rounded-lg text-xs shadow"
+                      className="w-full bg-[#2563eb] hover:bg-blue-700 text-white font-extrabold py-2 rounded-xl text-xs shadow-sm transition"
                     >
                       Lưu Bài Học ({uploadCategory === 'school' ? 'Trường' : 'Nhà'})
                     </button>
                   </div>
                 )}
 
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 space-y-2 flex-1 overflow-y-auto max-h-[82vh]">
-                  <div className="flex items-center justify-between px-1">
-                    <h2 className="font-bold text-slate-300 text-xs uppercase tracking-wider">
-                      {effectiveCategory === 'school' ? '🏫 Bài giảng Trường' : '🏠 Bài giảng Nhà'} • K{effectiveGrade} ({lessons.length})
+                <div className="bg-white border border-slate-200 rounded-2xl p-3 space-y-2.5 flex-1 overflow-y-auto max-h-[82vh] shadow-sm">
+                  <div className="flex items-center justify-between px-1 border-b border-slate-100 pb-2">
+                    <h2 className="font-extrabold text-slate-700 text-xs uppercase tracking-wider">
+                      {effectiveCategory === 'school' ? '🏫 Bài giảng Trường' : '🏠 Bài giảng Nhà'} • {effectiveGrade === 0 ? 'Khác' : `K${effectiveGrade}`} ({lessons.length})
                     </h2>
                   </div>
                   {lessons.length === 0 && (
-                    <p className="text-xs text-slate-500 p-4 text-center">Chưa có bài học nào trong phân hệ này.</p>
+                    <p className="text-xs text-slate-400 p-6 text-center">Chưa có bài học nào trong phân hệ này.</p>
                   )}
                   {lessons.map((item) => (
                     <div
                       key={item.id}
                       onClick={() => setSelectedLesson(item)}
-                      className={`p-2.5 rounded-xl border transition cursor-pointer ${
+                      className={`p-3 rounded-xl border transition cursor-pointer ${
                         selectedLesson?.id === item.id 
-                          ? 'bg-[#1e293b] border-blue-500 shadow-md' 
-                          : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/80'
+                          ? 'bg-blue-50/80 border-blue-500 shadow-sm ring-1 ring-blue-500/30' 
+                          : 'bg-slate-50/70 hover:bg-slate-100/80 border-slate-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-bold text-xs sm:text-sm text-white truncate">{item.title}</span>
-                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                          item.show_answers ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className={`font-extrabold text-xs sm:text-sm truncate ${
+                          selectedLesson?.id === item.id ? 'text-blue-800' : 'text-slate-800'
+                        }`}>
+                          {item.title}
+                        </span>
+                        <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                          item.show_answers
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : 'bg-amber-100 text-amber-800 border border-amber-200'
                         }`}>
                           {item.show_answers ? 'Mở ĐA' : 'Khóa ĐA'}
                         </span>
                       </div>
 
                       {isTeacher && (
-                        <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700 text-[11px]" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-200/80 text-[11px]" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => toggleLessonStatus(item, 'is_active')}
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded font-bold ${
-                              item.is_active ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300'
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded-md font-bold ${
+                              item.is_active ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
                             }`}
                           >
                             {item.is_active ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -3359,8 +3357,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
                           <button
                             onClick={() => toggleLessonStatus(item, 'show_answers')}
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded font-bold ${
-                              item.show_answers ? 'bg-amber-500 text-slate-950' : 'bg-slate-700 text-slate-300'
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded-md font-bold ${
+                              item.show_answers ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-700'
                             }`}
                           >
                             <Key className="w-3 h-3" />
@@ -3370,14 +3368,14 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => handleRenameItemSyncDrive('lessons', item, '.html')}
-                              className="text-sky-400 hover:bg-sky-950 px-1.5 py-0.5 rounded font-bold"
+                              className="text-blue-600 hover:bg-blue-100 px-1.5 py-0.5 rounded font-bold"
                               title="Đổi tên bài học trên Web & Google Drive"
                             >
                               ✏️ Sửa tên
                             </button>
                             <button
                               onClick={() => handleDeleteItemSyncDrive('lessons', item)}
-                              className="text-rose-400 hover:bg-rose-950 p-1 rounded"
+                              className="text-rose-500 hover:bg-rose-100 p-1 rounded"
                               title="Xóa bài học trên Web & Google Drive"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -3393,7 +3391,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
             <div className={isExpandedView ? 'lg:col-span-12' : 'lg:col-span-9'}>
               {selectedLesson ? (
-                <div className="bg-[#0b1120] rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-58px)] relative">
+                <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden flex flex-col h-[calc(100vh-68px)] relative">
                   {iframeBlobUrl ? (
                     <iframe
                       key={iframeBlobUrl}
@@ -3403,19 +3401,19 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       sandbox="allow-scripts allow-same-origin allow-modals allow-popups"
                     />
                   ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-3 text-white p-6">
-                      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                      <p className="font-extrabold text-sm sm:text-base text-amber-400">
+                    <div className="flex-1 flex flex-col items-center justify-center space-y-3 text-slate-700 bg-slate-50 p-6">
+                      <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                      <p className="font-extrabold text-sm sm:text-base text-blue-700">
                         ⚡ Đang nạp bài giảng "{selectedLesson.title}"...
                       </p>
-                      <p className="text-xs text-slate-400 text-center max-w-md">
+                      <p className="text-xs text-slate-500 text-center max-w-md">
                         File dung lượng lớn chỉ cần nạp lần đầu tiên. Các lần mở sau sẽ hiển thị tức thì trong 0.2 giây!
                       </p>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center text-slate-400">
+                <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-500 shadow-sm">
                   Chọn một bài giảng bên trái để bắt đầu trình chiếu.
                 </div>
               )}
@@ -4108,30 +4106,29 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
           </div>
         )}
 
-        {/* ==================== TAB 5: CHUYỂN TỪ ẢNH & PDF ➔ SLIDE HTML ==================== */}
+       {/* ==================== TAB 5: CHUYỂN TỪ ẢNH & PDF ➔ SLIDE HTML (GIAO DIỆN SÁNG) ==================== */}
         {activeTab === 'converter' && isTeacher && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
             <div 
               onPaste={handleClipboardPaste}
-              className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col space-y-2.5 text-white"
+              className="lg:col-span-5 bg-white border border-slate-200 shadow-sm rounded-2xl p-4 flex flex-col space-y-3 text-slate-800"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div>
-                  <h2 className="font-extrabold text-amber-400 text-sm sm:text-base flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4" /> Siêu Chuyển Đổi Ảnh & PDF ➔ Slide Thầy Vy
+                  <h2 className="font-extrabold text-blue-700 text-sm sm:text-base flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-500" /> Siêu Chuyển Đổi Ảnh & PDF ➔ Slide Thầy Vy
                   </h2>
-                  <p className="text-[11px] text-slate-400">
-                    Tải file Ảnh • Tải PDF • Hoặc bấm <strong className="text-emerald-400">Ctrl + V dán ảnh trực tiếp</strong>
+                  <p className="text-[11px] text-slate-500">
+                    Tải file Ảnh • Tải PDF • Hoặc bấm <strong className="text-emerald-600">Ctrl + V dán ảnh trực tiếp</strong>
                   </p>
                 </div>
               </div>
 
-              {/* Chọn đăng vào Lớp Trường hay Lớp Nhà */}
               <CategorySelectorPill />
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-950/90 p-2.5 rounded-xl border border-slate-800">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                 <div className="sm:col-span-2">
-                  <label className="text-[10px] text-amber-300 font-bold block mb-1">
+                  <label className="text-[10px] text-slate-700 font-bold block mb-1">
                     🔑 Gemini API Key (Đọc ảnh ra LaTeX & Vẽ lại hình SVG):
                   </label>
                   <input
@@ -4139,11 +4136,11 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                     placeholder="Dán API Key (Lấy tại aistudio.google.com)..."
                     value={geminiApiKey}
                     onChange={(e) => saveGeminiKey(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-emerald-300"
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-400 font-bold block mb-1">
+                  <label className="text-[10px] text-slate-700 font-bold block mb-1">
                     📄 Trang PDF:
                   </label>
                   <input
@@ -4151,7 +4148,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                     placeholder="VD: 1-5"
                     value={pdfPageRange}
                     onChange={(e) => setPdfPageRange(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white font-bold text-center"
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 font-bold text-center"
                   />
                 </div>
               </div>
@@ -4161,25 +4158,25 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                 placeholder="Tên bài giảng (VD: Chương V - Vectơ)"
                 value={converterTitle}
                 onChange={(e) => setConverterTitle(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs sm:text-sm text-white font-semibold"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 focus:bg-white rounded-xl text-xs sm:text-sm text-slate-800 font-semibold outline-none"
               />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <label className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-600/25 hover:bg-emerald-600/40 border border-dashed border-emerald-400 rounded-xl text-xs font-bold text-emerald-200 cursor-pointer transition">
-                  <Upload className="w-4 h-4" />
+                <label className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-50 hover:bg-emerald-100 border-2 border-dashed border-emerald-400 rounded-xl text-xs font-bold text-emerald-800 cursor-pointer transition">
+                  <Upload className="w-4 h-4 text-emerald-600" />
                   <span>{isExtractingPdf ? '⏳ Đang xử lý...' : '🖼️ Chọn Ảnh Đề Toán (.png/.jpg)'}</span>
                   <input type="file" accept="image/*" multiple onChange={handleImageFilesUpload} className="hidden" />
                 </label>
 
-                <label className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-600/25 hover:bg-blue-600/40 border border-dashed border-blue-400 rounded-xl text-xs font-bold text-blue-200 cursor-pointer transition">
-                  <FileUp className="w-4 h-4" />
+                <label className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-50 hover:bg-blue-100 border-2 border-dashed border-blue-400 rounded-xl text-xs font-bold text-blue-800 cursor-pointer transition">
+                  <FileUp className="w-4 h-4 text-blue-600" />
                   <span>{isExtractingPdf ? '⏳ Đang xử lý...' : '📄 Chọn File PDF từ máy'}</span>
                   <input type="file" accept=".pdf" onChange={handlePdfUpload} className="hidden" />
                 </label>
               </div>
 
               {aiStatusText && (
-                <div className="bg-amber-500/20 border border-amber-400 text-amber-300 px-3 py-1.5 rounded-xl text-xs font-bold animate-pulse">
+                <div className="bg-amber-50 border border-amber-300 text-amber-800 px-3 py-1.5 rounded-xl text-xs font-bold animate-pulse">
                   ⚡ {aiStatusText}
                 </div>
               )}
@@ -4188,20 +4185,20 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                 value={converterRawText}
                 onChange={(e) => setConverterRawText(e.target.value)}
                 rows={11}
-                className="w-full flex-1 p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-100 leading-relaxed"
+                className="w-full flex-1 p-3 bg-slate-50 border border-slate-300 focus:bg-white rounded-xl text-xs font-mono text-slate-800 leading-relaxed outline-none"
                 placeholder="Bấm Ctrl + V để dán ảnh chụp câu hỏi/hình vẽ, hoặc bấm nút Chọn Ảnh / Chọn PDF ở trên..."
               />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                 <button
                   onClick={handleSaveConvertedToLessons}
-                  className="flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold py-2.5 px-4 rounded-xl text-xs sm:text-sm shadow-lg"
+                  className="flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold py-2.5 px-4 rounded-xl text-xs sm:text-sm shadow"
                 >
                   <CheckCircle2 className="w-4 h-4" /> Lưu vào {uploadCategory === 'school' ? 'Lớp Trường' : 'Lớp Nhà'} (K{selectedGrade})
                 </button>
                 <button
                   onClick={handleDownloadConvertedHtml}
-                  className="flex items-center justify-center gap-1.5 bg-[#2563eb] hover:bg-blue-600 text-white font-bold py-2.5 px-4 rounded-xl text-xs sm:text-sm shadow-lg"
+                  className="flex items-center justify-center gap-1.5 bg-[#2563eb] hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs sm:text-sm shadow"
                 >
                   <Download className="w-4 h-4" /> Tải file .html về máy
                 </button>
@@ -4209,10 +4206,10 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
             </div>
 
             <div className="lg:col-span-7 flex flex-col">
-              <div className="bg-[#0b1120] rounded-2xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[calc(100vh-64px)]">
-                <div className="bg-slate-900 px-3 py-1.5 border-b border-slate-800 flex items-center justify-between text-xs text-slate-300">
-                  <span className="font-bold flex items-center gap-1.5 text-emerald-400">
-                    <Layers className="w-3.5 h-3.5" /> Xem trước Slide trực tiếp ({parsedPreviewSlides.length} Slide)
+              <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden flex flex-col h-[calc(100vh-68px)]">
+                <div className="bg-slate-100 px-3 py-2 border-b border-slate-200 flex items-center justify-between text-xs text-slate-700">
+                  <span className="font-extrabold flex items-center gap-1.5 text-blue-700">
+                    <Layers className="w-4 h-4" /> Xem trước Slide trực tiếp ({parsedPreviewSlides.length} Slide)
                   </span>
                 </div>
                 <iframe
@@ -4880,7 +4877,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
         </div>
       )}
       
-      <nav className="xl:hidden fixed bottom-0 left-0 right-0 bg-[#111827] border-t border-slate-800 flex justify-around py-2 z-30 shadow-lg">
+      <nav className="xl:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around py-2 z-30 shadow-lg">
         {navTabs.map((t) => {
           const Icon = t.icon;
           return (
@@ -4888,7 +4885,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
               key={t.id}
               onClick={() => setActiveTab(t.id)}
               className={`flex flex-col items-center space-y-1 text-[10px] font-medium ${
-                activeTab === t.id ? 'text-amber-400 font-bold' : 'text-slate-400'
+                activeTab === t.id ? 'text-blue-600 font-extrabold' : 'text-slate-500'
               }`}
             >
               <Icon className="w-4 h-4" />
