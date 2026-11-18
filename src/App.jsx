@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
+import VzotaPanel from './VzotaPanel';
 import { 
   BookOpen, FileText, CheckSquare, Info, Lock, LogOut, 
   Eye, EyeOff, Key, Plus, Trash2, Upload, Award, Users, 
   ExternalLink, Maximize2, Minimize2, Sparkles, Wand2, 
-  Download, FileUp, CheckCircle2, Layers
+  Download, FileUp, CheckCircle2, Layers, ScanLine
 } from 'lucide-react';
 
 const GRADES = [10, 11, 12, 0];
@@ -3203,7 +3204,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     { id: 'info', label: '4. Thông tin', icon: Info },
     ...(isTeacher ? [
       { id: 'converter', label: '✨ 5. PDF/Ảnh ➔ Slide', icon: Wand2 },
-      { id: 'students', label: '👥 6. TK Học sinh', icon: Users }
+      { id: 'students', label: '👥 6. TK Học sinh', icon: Users },
+      { id: 'vzota', label: '7. Vzota • Trộn & Chấm', icon: ScanLine }
     ] : []),
   ];
 
@@ -3321,6 +3323,24 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       </header>
 
       <main className="max-w-[1600px] w-full mx-auto px-2 sm:px-4 py-2.5 flex-1 flex flex-col">
+        {/* ==================== VZOTA: TRỘN ĐỀ & CHẤM PHIẾU HÀNG LOẠT ==================== */}
+        {activeTab === 'vzota' && isTeacher && (
+          <VzotaPanel
+            supabase={supabase}
+            students={studentsList}
+            exercises={exercises}
+            loadExistingExercise={async (ex) => {
+              if (Array.isArray(ex.questions_json) && ex.questions_json.length) return ex.questions_json;
+              const content = await fetchFromGoogleDrive(ex.drive_file_id);
+              if (!content) throw new Error('Không tải được ngân hàng câu hỏi từ Google Drive.');
+              return JSON.parse(content);
+            }}
+            grade={selectedGrade}
+            category={selectedCategory}
+            onSaved={fetchData}
+          />
+        )}
+
         {/* ==================== TAB 1: BÀI HỌC HTML (GIAO DIỆN XÁM TRẮNG DỄ NHÌN) ==================== */}
         {activeTab === 'lessons' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
