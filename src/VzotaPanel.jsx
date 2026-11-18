@@ -44,13 +44,13 @@ function outstanding(scan) {
     + ((/^\d{6}$/.test(scan.student_id || '')) ? 0 : 1)
     + ((/^\d{3}$/.test(scan.exam_code || '')) ? 0 : 1);
 }
-// Hiển thị 3 màu trên phiếu đã được căn chỉnh về 723 x 974 bởi backend OMR.
-// Chỉ tô dựa trên đáp án của chính mã đề; không coi ô được nhận diện là đáp án đúng.
+// Màu xanh: ô tô đúng; đỏ: ô tô sai; vàng: VỊ TRÍ ĐÁP ÁN CHUẨN khi sai/bỏ trống.
+// Tọa độ chỉ đúng với ảnh đã căn chỉnh chuẩn phiếu v17.0 723 x 974.
 const OMR_VIEW = { width: 723, height: 974 };
 const OMR_P1_X = [[333,350.1,367.5,385],[428.2,445.2,462.4,479.8],[521.6,538.6,556.1,573.4]];
 const OMR_P2_X = Array.from({length:7}, (_, i) => [110 + 73*i,127.3 + 73*i]);
 const OMR_P3_X = Array.from({length:6},(_,i)=>Array.from({length:4},(_,j)=>110+94.4*i+17.1*j));
-const COLOR = {correct:'#16a34a', wrong:'#dc2626', missing:'#eab308'};
+const COLOR = {correct:'#16a34a', wrong:'#dc2626', key:'#eab308', uncertain:'#64748b'};
 function examAnswerKey(raw, examCode) {
   if (!raw || typeof raw !== 'object') return null;
   if (raw.part1 || raw.part2 || raw.part3) return raw;
@@ -68,46 +68,66 @@ function classifyBubble(entry, expected) {
 function buildBubbleOverlay(scan, rawKeys) {
   const key = scan?.grading ? examAnswerKey(rawKeys, scan.exam_code) : null;
   if (!key) return {marks:[],count:{correct:0,wrong:0,missing:0},available:false};
-  const marks=[];const count={correct:0,wrong:0,missing:0};
+  const marks=[]; const count={correct:0,wrong:0,missing:0};
   const circle=(x,y,state,id)=>marks.push({kind:'circle',x,y,state,id});
-  const box=(x,y,w,h,state,id)=>marks.push({kind:'rect',x,y,w,h,state,id});
+  const rect=(x,y,w,h,state,id)=>marks.push({kind:'rect',x,y,w,h,state,id});
+  const label=(x,y,value,id)=>marks.push({kind:'label',x,y,value,id});
   const record=(state)=>{count[state]++;};
+  const keysOf=(value, allowed)=>[...new Set((Array.isArray(value)?value:[value]).map(v=>String(v??'').trim().toUpperCase()).filter(v=>allowed.includes(v)))];
   for(const [number,expected] of Object.entries(key.part1 || {})) {
     const n=Number(number);if(!Number.isInteger(n)||n<1||n>30)continue;
     const entry=scan.part1?.[n-1];const xs=OMR_P1_X[Math.floor((n-1)/10)];const y=213+17.15*((n-1)%10);
     const state=classifyBubble(entry,expected);record(state);
     const k='ABCD'.indexOf(entry?.answer);
-    if(state==='missing'||k<0) box(xs[0]-11,y-11, xs[3]-xs[0]+22,22,'missing',`I-${n}`);
-    else circle(xs[k],y,state,`I-${n}`);
+    if(state==='correct' && k>=0) circle(xs[k],y,'correct',`I-${n}-student`);
+    else {
+      if(entry?.status==='ok' && k>=0) circle(xs[k],y,'wrong',`I-${n}-student`);
+      else if(entry?.status==='review'||entry?.status==='multiple') rect(xs[0]-11,y-10,xs[3]-xs[0]+22,20,'uncertain',`I-${n}-review`);
+      keysOf(expected,'ABCD').forEach((v,j)=>circle(xs['ABCD'.indexOf(v)],y,'key',`I-${n}-key-${j}`));
+    }
   }
   for(const [number,expected] of Object.entries(key.part2 || {})) {
     const n=Number(number);if(!Number.isInteger(n)||n<1||n>7||!Array.isArray(expected))continue;
     for(let j=0;j<Math.min(4,expected.length);j++) {
-      const entry=scan.part2?.[n-1]?.statements?.[j]; const xs=OMR_P2_X[n-1];const y=466.4+17.25*j;
+      const entry=scan.part2?.[n-1]?.statements?.[j];const xs=OMR_P2_X[n-1];const y=466.4+17.25*j;
       const state=classifyBubble(entry,expected[j]);record(state);
       const k=['Đ','S'].indexOf(entry?.answer);
-      if(state==='missing'||k<0)box(xs[0]-11,y-11,xs[1]-xs[0]+22,22,'missing',`II-${n}-${j}`);
-      else circle(xs[k],y,state,`II-${n}-${j}`);
+      if(state==='correct' && k>=0) circle(xs[k],y,'correct',`II-${n}-${j}-student`);
+      else {
+        if(entry?.status==='ok' && k>=0)circle(xs[k],y,'wrong',`II-${n}-${j}-student`);
+        else if(entry?.status==='review'||entry?.status==='multiple')rect(xs[0]-11,y-10,xs[1]-xs[0]+22,20,'uncertain',`II-${n}-${j}-review`);
+        keysOf(expected[j],['Đ','S']).forEach((v,m)=>circle(xs[['Đ','S'].indexOf(v)],y,'key',`II-${n}-${j}-key-${m}`));
+      }
     }
   }
+  const numericY=(token,col)=>{
+    if(/^\d$/.test(token))return 680.5+17.2*Number(token);
+    if(token==='-' && col===0)return 646.5;
+    if(token===',' && (col===1||col===2))return 663.4;
+    return null;
+  };
   for(const [number,expected] of Object.entries(key.part3 || {})) {
     const n=Number(number);if(!Number.isInteger(n)||n<1||n>6)continue;
     const entry=scan.part3?.[n-1];const xs=OMR_P3_X[n-1];const state=classifyBubble(entry,expected);record(state);
-    // Một đáp án số có thể chiếm nhiều cột; nếu chưa nhận diện rõ thì khoanh cả cụm.
-    if(state==='missing'||entry?.reviewer_override||!Array.isArray(entry?.columns)){
-      box(xs[0]-12,633,xs[3]-xs[0]+24,212,state,`III-${n}`);
-      continue;
-    }
-    let any=false;
-    entry.columns.forEach((col,j)=>{
-      if(col?.status!=='ok'||!col.answer)return;
-      let y;
-      if(/^\d$/.test(col.answer)) y=680.5+17.2*Number(col.answer);
-      else if(col.answer==='-'&&j===0)y=646.5;
-      else if(col.answer===','&&(j===1||j===2))y=663.4;
-      if(y!==undefined){circle(xs[j],y,state,`III-${n}-${j}`);any=true;}
+    // Đáp án số nhiều ký tự: khoanh từng ô được đọc; khi sai đánh dấu vàng
+    // vào vị trí đáp án chuẩn. Nhãn phía trên vẫn thể hiện chính xác cả số.
+    const drawn=Array.isArray(entry?.columns) && !entry?.reviewer_override;
+    if(drawn)entry.columns.forEach((col,j)=>{
+      const y=numericY(String(col?.answer??''),j);
+      if(col?.status==='ok'&&y!==null)circle(xs[j],y,state==='correct'?'correct':'wrong',`III-${n}-student-${j}`);
     });
-    if(!any)box(xs[0]-12,633,xs[3]-xs[0]+24,212,state,`III-${n}`);
+    if(state!=='correct'){
+      const accepted=Array.isArray(expected)?expected:[expected];
+      const answer=String(accepted[0]??'').replace(/\./g,',').trim();
+      const tokens=[...answer];
+      if(tokens.length<=4 && tokens.every((v,j)=>numericY(v,j)!==null)){
+        tokens.forEach((v,j)=>circle(xs[j],numericY(v,j),'key',`III-${n}-key-${j}`));
+      } else {
+        rect(xs[0]-12,633,xs[3]-xs[0]+24,212,'uncertain',`III-${n}-review`);
+      }
+      label(xs[0]-9,624,`ĐA: ${Array.isArray(expected)?expected.join(' / '):expected}`,`III-${n}-label`);
+    }
+    if((entry?.status==='review'||entry?.status==='multiple') && !drawn)rect(xs[0]-12,671,xs[3]-xs[0]+24,175,'uncertain',`III-${n}-uncertain`);
   }
   return {marks,count,available:true};
 }
@@ -117,17 +137,19 @@ function BubbleOverlay({scan,answerKeys}) {
     <div className="relative mx-auto w-full max-w-[723px]">
       <img src={scan.preview} alt="Phiếu đã căn chỉnh và chú thích kết quả chấm" className="block h-auto w-full rounded border"/>
       {available && <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 723 974" preserveAspectRatio="none" aria-hidden="true">
-        {marks.map(m=>m.kind==='circle' ? <circle key={m.id} cx={m.x} cy={m.y} r="9.3" fill="none" stroke={COLOR[m.state]} strokeWidth="4.5"/> :
-          <rect key={m.id} x={m.x} y={m.y} width={m.w} height={m.h} rx="5" fill="none" stroke={COLOR[m.state]} strokeWidth="3" strokeDasharray={m.state==='missing'?'5 3':undefined}/>)}
+        {marks.map(m=>m.kind==='circle' ? <circle key={m.id} cx={m.x} cy={m.y} r="9.3" fill="none" stroke={COLOR[m.state]} strokeWidth="4"/> :
+          m.kind==='rect' ? <rect key={m.id} x={m.x} y={m.y} width={m.w} height={m.h} rx="5" fill="none" stroke={COLOR[m.state]} strokeWidth="2.5" strokeDasharray="5 3"/> :
+          <g key={m.id}><rect x={m.x-2} y={m.y-13} width={Math.min(105,12+String(m.value).length*7)} height="17" rx="3" fill="#fef08a" stroke="#ca8a04" strokeWidth="1"/><text x={m.x+1} y={m.y-1} fontSize="12" fontWeight="bold" fill="#713f12">{m.value}</text></g>)}
       </svg>}
     </div>
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold">
-      <span className="text-green-700">🟢 Đúng {available?`(${count.correct})`:''}</span>
-      <span className="text-red-700">🔴 Sai {available?`(${count.wrong})`:''}</span>
-      <span className="text-amber-700">🟡 Trống / chưa rõ {available?`(${count.missing})`:''}</span>
+      <span className="text-green-700">🟢 Tô đúng {available?`(${count.correct})`:''}</span>
+      <span className="text-red-700">🔴 Tô sai {available?`(${count.wrong})`:''}</span>
+      <span className="text-amber-700">🟡 Đáp án chuẩn (hiện khi sai hoặc bỏ trống)</span>
+      <span className="text-slate-600">⚪ Bỏ trống/chưa rõ {available?`(${count.missing})`:''}</span>
     </div>
-    {!available && <p className="mt-2 text-xs text-amber-800">Chưa có kết quả chấm cho mã đề này. Nạp bộ đáp án và chấm lại để hiển thị ba màu.</p>}
-    {available && <p className="mt-1 text-xs text-slate-500">Vòng tròn: ô đã đọc. Khung nét đứt vàng: không có lựa chọn chắc chắn. Phần III có thể khoanh cả vùng số.</p>}
+    {!available && <p className="mt-2 text-xs text-amber-800">Chưa có kết quả chấm cho mã đề này. Nạp bộ đáp án và chấm lại để hiện vị trí đáp án chuẩn.</p>}
+    {available && <p className="mt-1 text-xs text-slate-500">Khi tô sai: đỏ là lựa chọn của học sinh, vàng là đáp án đúng. Khi bỏ trống: chỉ vàng ở đáp án đúng. Nét đứt xám là ô chưa nhận diện rõ, cần kiểm tra. Phần III có nhãn ĐA cho số đúng.</p>}
   </>;
 }
 
