@@ -44,6 +44,93 @@ function outstanding(scan) {
     + ((/^\d{6}$/.test(scan.student_id || '')) ? 0 : 1)
     + ((/^\d{3}$/.test(scan.exam_code || '')) ? 0 : 1);
 }
+// Hiển thị 3 màu trên phiếu đã được căn chỉnh về 723 x 974 bởi backend OMR.
+// Chỉ tô dựa trên đáp án của chính mã đề; không coi ô được nhận diện là đáp án đúng.
+const OMR_VIEW = { width: 723, height: 974 };
+const OMR_P1_X = [[333,350.1,367.5,385],[428.2,445.2,462.4,479.8],[521.6,538.6,556.1,573.4]];
+const OMR_P2_X = Array.from({length:7}, (_, i) => [110 + 73*i,127.3 + 73*i]);
+const OMR_P3_X = Array.from({length:6},(_,i)=>Array.from({length:4},(_,j)=>110+94.4*i+17.1*j));
+const COLOR = {correct:'#16a34a', wrong:'#dc2626', missing:'#eab308'};
+function examAnswerKey(raw, examCode) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.part1 || raw.part2 || raw.part3) return raw;
+  if (Array.isArray(raw.variants)) return raw.variants.find(v => String(v.exam_code) === String(examCode))?.answer_key || null;
+  return (raw.answer_keys || raw)[String(examCode)] || null;
+}
+function equalAnswer(a,b) {
+  const norm = v => String(v ?? '').trim().replace(/\./g, ',').toUpperCase();
+  return (Array.isArray(b) ? b : [b]).some(x => norm(a) === norm(x));
+}
+function classifyBubble(entry, expected) {
+  if (!entry || entry.status !== 'ok' || entry.answer == null || entry.answer === '') return 'missing';
+  return equalAnswer(entry.answer, expected) ? 'correct' : 'wrong';
+}
+function buildBubbleOverlay(scan, rawKeys) {
+  const key = scan?.grading ? examAnswerKey(rawKeys, scan.exam_code) : null;
+  if (!key) return {marks:[],count:{correct:0,wrong:0,missing:0},available:false};
+  const marks=[];const count={correct:0,wrong:0,missing:0};
+  const circle=(x,y,state,id)=>marks.push({kind:'circle',x,y,state,id});
+  const box=(x,y,w,h,state,id)=>marks.push({kind:'rect',x,y,w,h,state,id});
+  const record=(state)=>{count[state]++;};
+  for(const [number,expected] of Object.entries(key.part1 || {})) {
+    const n=Number(number);if(!Number.isInteger(n)||n<1||n>30)continue;
+    const entry=scan.part1?.[n-1];const xs=OMR_P1_X[Math.floor((n-1)/10)];const y=213+17.15*((n-1)%10);
+    const state=classifyBubble(entry,expected);record(state);
+    const k='ABCD'.indexOf(entry?.answer);
+    if(state==='missing'||k<0) box(xs[0]-11,y-11, xs[3]-xs[0]+22,22,'missing',`I-${n}`);
+    else circle(xs[k],y,state,`I-${n}`);
+  }
+  for(const [number,expected] of Object.entries(key.part2 || {})) {
+    const n=Number(number);if(!Number.isInteger(n)||n<1||n>7||!Array.isArray(expected))continue;
+    for(let j=0;j<Math.min(4,expected.length);j++) {
+      const entry=scan.part2?.[n-1]?.statements?.[j]; const xs=OMR_P2_X[n-1];const y=466.4+17.25*j;
+      const state=classifyBubble(entry,expected[j]);record(state);
+      const k=['Đ','S'].indexOf(entry?.answer);
+      if(state==='missing'||k<0)box(xs[0]-11,y-11,xs[1]-xs[0]+22,22,'missing',`II-${n}-${j}`);
+      else circle(xs[k],y,state,`II-${n}-${j}`);
+    }
+  }
+  for(const [number,expected] of Object.entries(key.part3 || {})) {
+    const n=Number(number);if(!Number.isInteger(n)||n<1||n>6)continue;
+    const entry=scan.part3?.[n-1];const xs=OMR_P3_X[n-1];const state=classifyBubble(entry,expected);record(state);
+    // Một đáp án số có thể chiếm nhiều cột; nếu chưa nhận diện rõ thì khoanh cả cụm.
+    if(state==='missing'||entry?.reviewer_override||!Array.isArray(entry?.columns)){
+      box(xs[0]-12,633,xs[3]-xs[0]+24,212,state,`III-${n}`);
+      continue;
+    }
+    let any=false;
+    entry.columns.forEach((col,j)=>{
+      if(col?.status!=='ok'||!col.answer)return;
+      let y;
+      if(/^\d$/.test(col.answer)) y=680.5+17.2*Number(col.answer);
+      else if(col.answer==='-'&&j===0)y=646.5;
+      else if(col.answer===','&&(j===1||j===2))y=663.4;
+      if(y!==undefined){circle(xs[j],y,state,`III-${n}-${j}`);any=true;}
+    });
+    if(!any)box(xs[0]-12,633,xs[3]-xs[0]+24,212,state,`III-${n}`);
+  }
+  return {marks,count,available:true};
+}
+function BubbleOverlay({scan,answerKeys}) {
+  const {marks,count,available}=buildBubbleOverlay(scan,answerKeys);
+  return <>
+    <div className="relative mx-auto w-full max-w-[723px]">
+      <img src={scan.preview} alt="Phiếu đã căn chỉnh và chú thích kết quả chấm" className="block h-auto w-full rounded border"/>
+      {available && <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 723 974" preserveAspectRatio="none" aria-hidden="true">
+        {marks.map(m=>m.kind==='circle' ? <circle key={m.id} cx={m.x} cy={m.y} r="9.3" fill="none" stroke={COLOR[m.state]} strokeWidth="4.5"/> :
+          <rect key={m.id} x={m.x} y={m.y} width={m.w} height={m.h} rx="5" fill="none" stroke={COLOR[m.state]} strokeWidth="3" strokeDasharray={m.state==='missing'?'5 3':undefined}/>)}
+      </svg>}
+    </div>
+    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold">
+      <span className="text-green-700">🟢 Đúng {available?`(${count.correct})`:''}</span>
+      <span className="text-red-700">🔴 Sai {available?`(${count.wrong})`:''}</span>
+      <span className="text-amber-700">🟡 Trống / chưa rõ {available?`(${count.missing})`:''}</span>
+    </div>
+    {!available && <p className="mt-2 text-xs text-amber-800">Chưa có kết quả chấm cho mã đề này. Nạp bộ đáp án và chấm lại để hiển thị ba màu.</p>}
+    {available && <p className="mt-1 text-xs text-slate-500">Vòng tròn: ô đã đọc. Khung nét đứt vàng: không có lựa chọn chắc chắn. Phần III có thể khoanh cả vùng số.</p>}
+  </>;
+}
+
 function htmlEscape(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -449,7 +536,7 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
           </section>}
           {chosen?.scan && <section className="grid grid-cols-1 gap-3 lg:grid-cols-12">
             <div className="space-y-2 rounded-2xl border bg-white p-4 shadow-sm lg:col-span-5"><h3 className="font-extrabold">Ảnh sau căn chỉnh: {chosen.fileName}</h3>
-              <img src={chosen.scan.preview} alt="Phiếu đã định vị và đánh dấu các ô máy nhận diện" className="mx-auto max-h-[900px] w-full rounded border object-contain"/>
+              <BubbleOverlay scan={chosen.scan} answerKeys={parsedKeys.keys}/>
               <p className="text-xs text-slate-500">Mốc đạt: {Math.round((chosen.scan.registration?.anchor_match_ratio || 0) * 100)}%. Chỉ hỗ trợ bố cục phiếu v17.0.</p></div>
             <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm lg:col-span-7">
               <div className="flex items-center justify-between gap-2"><h3 className="font-extrabold">4. Kiểm tra và sửa đáp án</h3>
