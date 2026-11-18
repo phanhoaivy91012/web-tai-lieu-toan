@@ -114,6 +114,9 @@ async function apiRequest(supabase, endpoint, opts = {}) {
 
 export default function VzotaPanel({ supabase, students = [], exercises = [], loadExistingExercise, grade, category, onSaved }) {
   const [mode, setMode] = useState('scan');
+  const [wordFile, setWordFile] = useState(null);
+  const [wordInfo, setWordInfo] = useState(null);
+  const [wordConfirmed, setWordConfirmed] = useState(false);
   const [selectedExerciseId, setSelectedExerciseId] = useState('');
   const [bankVerified, setBankVerified] = useState(false);
   const [bankText, setBankText] = useState(JSON.stringify(DEFAULT_BANK, null, 2));
@@ -139,6 +142,37 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
   const chosen = results[selected];
   const scopeChanged = !!scanScope && (Number(scanScope.grade) !== Number(grade) || scanScope.category !== category || scanScope.classFilter !== classFilter);
   const approvedRows = scopeChanged ? [] : results.filter((r) => r.approved && !r.saved && r.scan?.grading && getMatch(r.scan).state === 'matched');
+
+
+  async function inspectWordFile(file) {
+    if (!file) return;
+    setWordFile(file); setWordInfo(null); setWordConfirmed(false); setNotice(''); setBusy(true);
+    try {
+      const form = new FormData(); form.append('file', file);
+      const info = await apiRequest(supabase, '/api/inspect-word', {method:'POST',body:form});
+      setWordInfo(info);
+      setNotice('Đã phân tích Word. Cần đối chiếu đáp án với bản gốc trước khi trộn.');
+    } catch (e) {setNotice('Lỗi đọc Word: '+e.message);}
+    finally {setBusy(false);}
+  }
+  async function mixWordFile() {
+    if (!wordFile || !wordInfo || !wordConfirmed || wordInfo.warnings.length) return;
+    setBusy(true);setNotice('');
+    try {
+      const session = await supabase.auth.getSession();
+      const token=session.data?.session?.access_token;
+      if (!token) throw new Error('Phiên đăng nhập hết hạn.');
+      const form=new FormData();
+      form.append('file',wordFile);form.append('count',String(variantCount));
+      form.append('starting_code',String(codeStart));form.append('seed',String(seed));
+      const res=await fetch(`${API}/api/mix-word`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:form});
+      if (!res.ok) {const err=await res.json().catch(()=>({}));throw new Error(err.detail || `HTTP ${res.status}`);}
+      const blob=await res.blob();const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download='Vzota_Word_Mixed.zip';a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),2000);
+      setNotice('Đã tải ZIP đề Word và đáp án. Mở file Word kiểm tra trước khi in. Nạp Vzota_bo_dap_an.json từ ZIP để chấm.');
+    }catch(e){setNotice('Lỗi trộn Word: '+e.message);}finally{setBusy(false);}
+  }
 
   async function handleMix() {
     if (!bankVerified) return setNotice('Hãy kiểm tra câu hỏi và đáp án, sau đó đánh dấu xác nhận trước khi trộn.');
@@ -332,7 +366,24 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
       {mode === 'mix' ? (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
           <section className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm lg:col-span-7">
-            <h3 className="font-extrabold text-slate-800">Ngân hàng câu hỏi (JSON)</h3>
+
+            <div className="space-y-3 rounded-xl border-2 border-blue-200 bg-blue-50 p-4">
+              <h3 className="font-extrabold text-blue-800">Nhập file Word chuẩn Azota (.docx)</h3>
+              <p className="text-xs text-slate-700">Giữ nguyên đối tượng công thức/hình trong Word gốc bằng cách đảo thứ tự câu. Phiên bản này <b>chưa đảo A/B/C/D</b>. Đáp án gạch chân được đọc từ bản gốc; đáp án ngắn từ dòng “Đáp án:”.</p>
+              <input aria-label="Chọn đề Word" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className={input} disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f)inspectWordFile(f);e.target.value='';}}/>
+              {wordFile && <p className="text-xs font-semibold">Đã chọn: {wordFile.name}</p>}
+              {wordInfo && <div className="space-y-2 rounded-lg bg-white p-3 text-xs">
+                <p><b>Phân tích:</b> {wordInfo.counts.part1} câu A/B/C/D · {wordInfo.counts.part2} câu Đ/S · {wordInfo.counts.part3} câu ngắn.</p>
+                <p>Đối tượng toán học nhúng: {wordInfo.objects}; hình: {wordInfo.drawings}. Không chuyển các đối tượng này thành chữ thuần.</p>
+                {wordInfo.warnings?.length ? <div className="text-red-700"><b>Cần sửa trong Word:</b>{wordInfo.warnings.map((w,i)=><p key={i}>• {w}</p>)}</div> : <p className="text-green-700">Đã tìm được cấu trúc và đáp án cho từng câu. Vẫn cần giáo viên duyệt.</p>}
+                <details className="rounded border p-2"><summary className="cursor-pointer font-bold">Xem đáp án phát hiện (trước khi trộn)</summary>
+                  {['part1','part2','part3'].map((part,idx)=><div key={part} className="my-1"><b>Phần {['I','II','III'][idx]}: </b>{Object.entries(wordInfo.answers[part]||{}).map(([n,a])=>`${n}: ${Array.isArray(a)?a.join(''):a ?? '?'}; `)}</div>)}
+                </details>
+                <label className="flex items-start gap-2"><input type="checkbox" checked={wordConfirmed} onChange={e=>setWordConfirmed(e.target.checked)}/> Tôi đã so sánh đáp án với file Word gốc và chấp nhận chỉ đảo thứ tự câu hỏi.</label>
+                <button className={primary} disabled={busy || !wordConfirmed || wordInfo.warnings?.length>0} onClick={mixWordFile}><Shuffle size={14}/> Trộn Word và tải đề + đáp án (.zip)</button>
+              </div>}
+            </div>
+            <h3 className="font-extrabold text-slate-800">Ngân hàng câu hỏi (JSON) — phương thức cũ</h3>
             <p className="text-xs text-slate-500">Phiếu hỗ trợ tối đa 30 câu ABCD, 7 câu Đúng/Sai và 6 câu trả lời ngắn. Ví dụ có sẵn chỉ để thử, cần thay bằng đề chính thức.</p>
             {!!exercises.length && <div className="flex flex-wrap items-end gap-2 rounded-xl border border-blue-100 bg-blue-50 p-3"><label className="min-w-52 flex-1 text-xs font-bold text-blue-800">Nạp đề từ tab “Bài tập” hiện có
               <select className={`${input} mt-1`} value={selectedExerciseId} onChange={(e) => setSelectedExerciseId(e.target.value)}><option value="">— Chọn bài tập trên Drive —</option>{exercises.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</select></label>
@@ -418,4 +469,3 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
     </div>
   );
 }
-
