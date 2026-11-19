@@ -190,6 +190,12 @@ function downloadFile(name, contents, mime = 'application/json') {
   el.href = uri; el.download = name; document.body.appendChild(el); el.click(); el.remove();
   setTimeout(() => URL.revokeObjectURL(uri), 1500);
 }
+function downloadBlob(name, blob) {
+  const uri = URL.createObjectURL(blob);
+  const el = document.createElement('a'); el.href = uri; el.download = name;
+  document.body.appendChild(el); el.click(); el.remove();
+  setTimeout(() => URL.revokeObjectURL(uri), 5000);
+}
 function printVariant(variant) {
   const { title, exam_code: code, questions } = variant;
   let body = `<h1>${htmlEscape(title)}</h1><p><b>Mã đề: ${htmlEscape(code)}</b>　Họ tên: ......................................　Lớp: ...................</p>`;
@@ -279,10 +285,35 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
       const blob=await res.blob();const url=URL.createObjectURL(blob);
       const a=document.createElement('a');a.href=url;a.download='Vzota_Word_Mixed.zip';a.click();
       setTimeout(()=>URL.revokeObjectURL(url),2000);
-      setNotice('Đã tải ZIP đề Word và đáp án. Mở file Word kiểm tra trước khi in. Nạp Vzota_bo_dap_an.json từ ZIP để chấm.');
+      setNotice('Đã tải ZIP có đề Word và đáp án Excel dạng Azota (mỗi mã đề một cột). Khi chấm hãy nạp chính file Excel trong ZIP.');
     }catch(e){setNotice('Lỗi trộn Word: '+e.message);}finally{setBusy(false);}
   }
 
+  async function uploadExcelKeys(file) {
+    if (!file) return;
+    setBusy(true);setNotice('');
+    try {
+      const form=new FormData();form.append('file',file);
+      const result=await apiRequest(supabase,'/api/import-answers-xlsx',{method:'POST',body:form});
+      setKeyText(JSON.stringify(result.answer_keys,null,2));
+      setResults([]);setSelected(-1);
+      setNotice(`Đã nhận Excel dạng Azota: ${result.codes.length} mã đề (${result.codes.join(', ')}). Có thể chọn ảnh để chấm.`);
+    }catch(e){setNotice(`Lỗi đọc đáp án Excel: ${e.message}`);}finally{setBusy(false);}
+  }
+  async function exportExcelKeys(keys=parsedKeys.keys) {
+    if (!keys) {setNotice('Chưa có đáp án để xuất Excel.');return;}
+    setBusy(true);setNotice('');
+    try {
+      const {data,error}=await supabase.auth.getSession();
+      if(error||!data?.session?.access_token)throw new Error('Cần đăng nhập lại giáo viên.');
+      const res=await fetch(`${API}/api/export-answers-xlsx`,{
+        method:'POST',headers:{Authorization:`Bearer ${data.session.access_token}`,'Content-Type':'application/json'},
+        body:JSON.stringify(keys)});
+      if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.detail||`HTTP ${res.status}`);}
+      downloadBlob('Vzota_bo_dap_an.xlsx',await res.blob());
+      setNotice('Đã tải Excel dạng Azota: mã đề ở hàng 2, mỗi mã một cột; dùng file này để chấm.');
+    }catch(e){setNotice('Lỗi xuất Excel: '+e.message);}finally{setBusy(false);}
+  }
   async function handleMix() {
     if (!bankVerified) return setNotice('Hãy kiểm tra câu hỏi và đáp án, sau đó đánh dấu xác nhận trước khi trộn.');
     setNotice(''); setBusy(true);
@@ -489,7 +520,7 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
                   {['part1','part2','part3'].map((part,idx)=><div key={part} className="my-1"><b>Phần {['I','II','III'][idx]}: </b>{Object.entries(wordInfo.answers[part]||{}).map(([n,a])=>`${n}: ${Array.isArray(a)?a.join(''):a ?? '?'}; `)}</div>)}
                 </details>
                 <label className="flex items-start gap-2"><input type="checkbox" checked={wordConfirmed} onChange={e=>setWordConfirmed(e.target.checked)}/> Tôi đã so sánh đáp án với file Word gốc và chấp nhận chỉ đảo thứ tự câu hỏi.</label>
-                <button className={primary} disabled={busy || !wordConfirmed || wordInfo.warnings?.length>0} onClick={mixWordFile}><Shuffle size={14}/> Trộn Word và tải đề + đáp án (.zip)</button>
+                <button className={primary} disabled={busy || !wordConfirmed || wordInfo.warnings?.length>0} onClick={mixWordFile}><Shuffle size={14}/> Trộn Word + xuất Excel kiểu Azota (.zip)</button>
               </div>}
             </div>
             <h3 className="font-extrabold text-slate-800">Ngân hàng câu hỏi (JSON) — phương thức cũ</h3>
@@ -510,7 +541,7 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
           <section className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm lg:col-span-5">
             <h3 className="font-extrabold text-slate-800">Danh sách mã đề đã tạo ({variants.length})</h3>
             {variants.length > 0 && <div className="flex flex-wrap gap-2"><button className={secondary} onClick={() => downloadFile('Vzota_cac_ma_de.json', JSON.stringify(variants, null, 2))}><Download size={14}/> Tải toàn bộ đề</button>
-              <button className={secondary} onClick={() => downloadFile('Vzota_bo_dap_an.json', keyText)}><Download size={14}/> Tải đáp án</button>
+              <button className={secondary} disabled={busy} onClick={() => exportExcelKeys()}><Download size={14}/> Tải Excel đáp án</button>
               <button className={primary} onClick={() => setMode('scan')}>Chuyển sang chấm</button></div>}
             {variants.length ? <div className="max-h-[660px] space-y-2 overflow-y-auto">{variants.map((v) => <article key={v.exam_code} className="flex items-center justify-between rounded-xl border border-slate-200 p-3"><div><b className="text-blue-700">Mã {v.exam_code}</b><p className="text-xs text-slate-500">{v.questions.part1.length} TN · {v.questions.part2.length} Đ/S · {v.questions.part3.length} ngắn</p></div><button className={secondary} onClick={() => printVariant(v)}><Printer size={14}/> In đề</button></article>)}</div>
               : <p className="text-sm text-slate-500">Các mã đề sau khi trộn sẽ hiện tại đây.</p>}
@@ -521,10 +552,17 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
             <section className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm lg:col-span-5">
               <h3 className="font-extrabold text-slate-800">1. Bộ đáp án từng mã đề</h3>
+              <label className={`${primary} cursor-pointer ${busy ? 'opacity-50 pointer-events-none' : ''}`}><FileUp size={15}/> Nạp đáp án Excel (.xlsx)
+                <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f)uploadExcelKeys(f);e.target.value='';}} />
+              </label>
+              <p className="text-xs text-slate-600">Nạp <b>Vzota_bo_dap_an.xlsx</b> trong ZIP sau khi trộn đề, hoặc file đáp án Excel chuẩn Azota (mã đề ở hàng 2, mỗi mã một cột).</p>
+              {parsedKeys.keys && <p className="rounded-lg bg-green-50 p-2 text-xs font-bold text-green-800">Đã có đáp án {Object.keys(parsedKeys.keys).length} mã đề. Có thể quét ảnh.</p>}
+              <details className="rounded-lg border p-2 text-xs"><summary className="cursor-pointer font-semibold text-slate-600">Tùy chọn nâng cao: JSON cũ / chỉnh sửa đáp án</summary>
               <div className="flex flex-wrap gap-2"><label className={secondary}><Upload size={14}/> Nạp đáp án JSON<input type="file" accept=".json,application/json" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { setKeyText(await f.text()); setResults([]); } e.target.value = ''; }}/></label>
-                <button className={secondary} disabled={!keyText.trim()} onClick={() => downloadFile('Vzota_bo_dap_an.json', keyText)}><Download size={14}/> Sao lưu đáp án</button></div>
+                <button className={secondary} disabled={!keyText.trim() || busy} onClick={() => exportExcelKeys()}><Download size={14}/> Tải Excel</button></div>
               <textarea rows={7} spellCheck={false} placeholder='Dán JSON dạng {"101":{"part1": {...}, ...}, "102": {...}}' className={`${input} font-mono text-xs`} value={keyText} onChange={(e) => { setKeyText(e.target.value); setResults([]); }}/>
               {parsedKeys.error && <p className="text-xs text-rose-700">JSON chưa hợp lệ: {parsedKeys.error}</p>}
+              </details>
               <label className="block text-xs font-bold text-slate-700">Tên bài kiểm tra lưu trong sổ điểm<input className={`${input} mt-1`} value={testName} onChange={(e) => setTestName(e.target.value)} placeholder="VD: Kiểm tra giữa kỳ I"/></label>
               <label className="block text-xs font-bold text-slate-700">Lớp cần chấm<select className={`${input} mt-1`} value={classFilter} onChange={(e) => { setClassFilter(e.target.value); setResults((old) => old.map((r) => ({ ...r, approved: false }))); }}><option value="ALL">Tất cả lớp thuộc phân hệ này</option>{classes.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
             </section>
