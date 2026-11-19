@@ -1,1 +1,233 @@
+"""Vzota Excel answer-key interchange: .xlsx via standard-library OOXML.
+
+No extra dependencies; reads inline strings, shared strings, normal Excel files.
+CSV-like long rows: Mã đề | Phần | Câu | Ý | Đáp án.
+"""
+from __future__ import annotations
+import io, json, re, zipfile
+from collections import defaultdict
+from xml.etree import ElementTree as ET
+from html import escape
+
+NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+REL='http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+PKG='http://schemas.openxmlformats.org/package/2006/relationships'
+ET.register_namespace('', NS)
+HEAD=['Mã đề','Phần','Câu','Ý','Đáp án']
+MAX_XLSX=5*1024*1024
+MAX_ROWS=10000
+
+def _letter(i):
+    s=''
+    while i:
+        i,r=divmod(i-1,26); s=chr(65+r)+s
+    return s
+
+def _sheet_xml(rows, widths, freeze_rows=2, freeze_cols=1, filter_cols=0):
+    x=[f'<worksheet xmlns="{NS}"><sheetViews><sheetView workbookViewId="0"><pane xSplit="{freeze_cols}" ySplit="{freeze_rows}" topLeftCell="{_letter(freeze_cols+1)}{freeze_rows+1}" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>']
+    x.append('<cols>'+''.join(f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>' for i,w in enumerate(widths,1))+'</cols><sheetData>')
+    for ri,row in enumerate(rows,1):
+        x.append(f'<row r="{ri}"'+(' ht="26" customHeight="1"' if ri<=2 else '')+'>')
+        for ci,val in enumerate(row,1):
+            addr=f'{_letter(ci)}{ri}'
+            style=' s="1"' if ri<=2 else (' s="2"' if ri%2 else '')
+            value=str(val if val is not None else '')
+            x.append(f'<c r="{addr}" t="inlineStr"{style}><is><t xml:space="preserve">{escape(value,quote=False)}</t></is></c>')
+        x.append('</row>')
+    x.append('</sheetData>')
+    if filter_cols: x.append(f'<autoFilter ref="A2:{_letter(filter_cols)}{max(2,len(rows))}"/>')
+    x.append('</worksheet>')
+    return ''.join(x).encode('utf-8')
+
+
+def _variants(keys):
+    answer_keys=keys.get('answer_keys',keys)
+    if 'variants' in keys and isinstance(keys['variants'],list):
+        answer_keys={str(v['exam_code']):v['answer_key'] for v in keys['variants']}
+    if not isinstance(answer_keys,dict) or not answer_keys or 'part1' in answer_keys:
+        raise ValueError('Phải có đáp án theo từng mã đề.')
+    result={}
+    for code,key in answer_keys.items():
+        if not re.fullmatch(r'\d{1,4}',str(code)) or not isinstance(key,dict):
+            raise ValueError(f'Mã đề không hợp lệ: {code}')
+        number=int(code)
+        if number>999: raise ValueError(f'Mã đề {code} vượt 3 chữ số của phiếu v17.0.')
+        canonical=f'{number:03d}'
+        if canonical in result:raise ValueError(f'Mã đề bị trùng: {code}')
+        result[canonical]=key
+    return dict(sorted(result.items(),key=lambda x:int(x[0])))
+
+
+def _ordered_part(key,part,limit):
+    value=key.get(f'part{part}',{})
+    if not isinstance(value,dict):raise ValueError('Đáp án từng phần phải là object.')
+    indices=sorted(int(n) for n in value)
+    if indices!=list(range(1,len(indices)+1)) or len(indices)>limit:
+        raise ValueError(f'Phần {part}: câu phải liên tục từ 1 và không quá {limit}.')
+    return [value[str(n)] if str(n) in value else value[n] for n in indices]
+
+
+def export_answers_xlsx(keys:dict)->bytes:
+    answer_keys=_variants(keys)
+    codes=list(answer_keys)
+    first=answer_keys[codes[0]]
+    counts=[len(_ordered_part(first,i,cap)) for i,cap in [(1,30),(2,7),(3,6)]]
+    for code,key in answer_keys.items():
+        own=[len(_ordered_part(key,i,cap)) for i,cap in [(1,30),(2,7),(3,6)]]
+        if own!=counts:raise ValueError(f'Mã {code} có số câu khác các mã đề còn lại.')
+    if not any(counts):raise ValueError('Bộ đáp án không có câu hỏi.')
+    rows=[['Câu hỏi','Mã đề thi']+['']*(len(codes)-1),['']+[f'{int(c):04d}' for c in codes]]
+    for part,number in enumerate(counts,1):
+        for q in range(1,number+1):
+            answers=[]
+            for code in codes:
+                v=_ordered_part(answer_keys[code],part,[0,30,7,6][part])[q-1]
+                if part==1:
+                    val=str(v).upper().strip()
+                    if val not in 'ABCD' or len(val)!=1:raise ValueError(f'Mã {code}, phần I câu {q}: đáp án A-D không hợp lệ.')
+                elif part==2:
+                    if isinstance(v,list):val=''.join(str(z).upper().strip() for z in v)
+                    elif isinstance(v,str):val=v.upper().strip()
+                    else:raise ValueError(f'Mã {code}, phần II câu {q}: thiếu 4 ý.')
+                    if not re.fullmatch('[ĐS]{4}',val):raise ValueError(f'Mã {code}, phần II câu {q}: cần 4 ký tự Đ/S.')
+                else:
+                    if isinstance(v,list):
+                        if len(v)!=1:raise ValueError('Mẫu Azota chỉ hỗ trợ 1 đáp án ngắn mỗi câu.')
+                        v=v[0]
+                    val=str(v).strip().replace('.',',')
+                    if not re.fullmatch(r'-?\d+(?:,\d+)?',val) or len(val)>4:
+                        raise ValueError(f'Mã {code}, phần III câu {q}: đáp án số không vừa phiếu 4 ô.')
+                answers.append(val)
+            rows.append([str(sum(counts[:part-1])+q)]+answers)
+    settings=[['Vzota - Cấu hình đáp án (không sửa tiêu đề)'],['Phần I (số câu)','Phần II (số câu)','Phần III (số câu)'],[str(v) for v in counts],[],['Mã đề','Điểm phần I','Điểm phần II','Điểm phần III','Cách tính phần II','Mức điểm phần II (JSON)']]
+    for code,key in answer_keys.items():
+        p=key.get('points',{})
+        settings.append([f'{int(code):04d}',str(p.get('part1',round(3/counts[0],8) if counts[0] else 0)),str(p.get('part2',round(1/counts[1],8) if counts[1] else 0)),str(p.get('part3',round(3/counts[2],8) if counts[2] else 0)),str(key.get('part2_policy','progressive')),json.dumps(key.get('part2_progressive_scores',[0,.1,.25,.5,1]),ensure_ascii=False)])
+    wb=f'<workbook xmlns="{NS}" xmlns:r="{REL}"><sheets><sheet name="Dap an" sheetId="1" r:id="rId1"/><sheet name="Cau hinh" sheetId="2" r:id="rId2"/></sheets></workbook>'
+    workbook_rels=f'<Relationships xmlns="{PKG}"><Relationship Id="rId1" Type="{REL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="{REL}/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="{REL}/styles" Target="styles.xml"/></Relationships>'
+    root_rels=f'<Relationships xmlns="{PKG}"><Relationship Id="rId1" Type="{REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>'
+    styles=f'<styleSheet xmlns="{NS}"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF174EA6"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>'
+    types='<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'
+    output=io.BytesIO()
+    with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as z:
+        for name,data in [('[Content_Types].xml',types),('_rels/.rels',root_rels),('xl/workbook.xml',wb),('xl/_rels/workbook.xml.rels',workbook_rels),('xl/styles.xml',styles),('xl/worksheets/sheet1.xml',_sheet_xml(rows,[16]+[16]*len(codes))),('xl/worksheets/sheet2.xml',_sheet_xml(settings,[24,20,20,20,26,42],freeze_rows=0,freeze_cols=0))]:z.writestr(name,data)
+    return output.getvalue()
+
+def _read_rows(z, name, strings):
+    root=ET.fromstring(z.read(name))
+    rows=[]
+    for row in root.findall(f'.//{{{NS}}}sheetData/{{{NS}}}row'):
+        if len(rows)>=MAX_ROWS:raise ValueError('File có quá nhiều dòng.')
+        values={}
+        for c in row.findall(f'{{{NS}}}c'):
+            if c.find(f'{{{NS}}}f') is not None:
+                raise ValueError('Không nhận công thức trong ô đáp án. Hãy dán giá trị trước khi nhập.')
+            addr=c.get('r',''); cm=re.match(r'^([A-Z]+)\d+$',addr)
+            if not cm:continue
+            col=0
+            for letter in cm.group(1):col=col*26+ord(letter)-64
+            typ=c.get('t','')
+            if typ=='inlineStr':
+                value=''.join(t.text or '' for t in c.findall(f'.//{{{NS}}}t'))
+            else:
+                v=c.find(f'{{{NS}}}v')
+                value=v.text if v is not None and v.text is not None else ''
+                if typ=='s':value=strings[int(value)]
+            values[col]=value
+        rows.append([values.get(i,'') for i in range(1,min(101,max(values.keys(),default=1)+1))])
+    return rows
+
+def import_answers_xlsx(raw:bytes)->dict:
+    if len(raw)>MAX_XLSX:raise ValueError('Excel tối đa 5 MB.')
+    if not zipfile.is_zipfile(io.BytesIO(raw)):raise ValueError('File Excel không hợp lệ.')
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        if len(z.namelist())>200 or sum(i.file_size for i in z.infolist())>20_000_000:
+            raise ValueError('File Excel quá lớn.')
+        strings=[]
+        if 'xl/sharedStrings.xml' in z.namelist():
+            sr=ET.fromstring(z.read('xl/sharedStrings.xml'))
+            strings=[''.join(t.text or '' for t in item.findall(f'.//{{{NS}}}t')) for item in sr.findall(f'{{{NS}}}si')]
+        book=ET.fromstring(z.read('xl/workbook.xml'))
+        rels=ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+        paths={r.get('Id'):r.get('Target') for r in rels.findall(f'{{{PKG}}}Relationship')}
+        sheets={x.get('name'):x.get(f'{{{REL}}}id') for x in book.findall(f'.//{{{NS}}}sheet')}
+        if not sheets:raise ValueError('Excel không có sheet.')
+        def read_sheet(sheet):
+            target=paths[sheets[sheet]].lstrip('/')
+            if '..' in target.split('/'):raise ValueError('Đường dẫn Excel không hợp lệ.')
+            path=target if target.startswith('xl/') else 'xl/'+target
+            return _read_rows(z,path,strings)
+        # Azota original often uses Sheet1; Vzota-generated files use Dap an.
+        name='Dap an' if 'Dap an' in sheets else next(iter(sheets))
+        rows=read_sheet(name)
+        conf=read_sheet('Cau hinh') if 'Cau hinh' in sheets else []
+    if len(rows)<3 or str(rows[0][0]).strip().casefold()!='câu hỏi' or str(rows[0][1]).strip().casefold()!='mã đề thi':
+        raise ValueError('Sai mẫu Azota. Hàng 1 cần A1=Câu hỏi và B1=Mã đề thi.')
+    # _read_rows must not truncate columns: see implementation below.
+    codes=[];seen=set()
+    for column,val in enumerate(rows[1][1:],2):
+        value=str(val).strip()
+        if not value:continue
+        if not re.fullmatch(r'\d{1,4}',value) or int(value)>999:
+            raise ValueError(f'Cột {_letter(column)}: mã đề không hợp lệ với phiếu 3 chữ số.')
+        code=f'{int(value):03d}'
+        if code in seen:raise ValueError(f'Mã đề trùng: {value}')
+        seen.add(code);codes.append((column-1,code))
+    if not codes:raise ValueError('Hàng 2 chưa có mã đề.')
+    lines=[];expected=1
+    for rowidx,row in enumerate(rows[2:],3):
+        item=str(row[0]).strip()
+        vals=[str(row[col]).strip() if col<len(row) else '' for col,_ in codes]
+        if not item and not any(vals):continue
+        if not item.isdigit() or int(item)!=expected:raise ValueError(f'Dòng {rowidx}: số thứ tự câu phải liên tục từ 1.')
+        if any(not v for v in vals):raise ValueError(f'Dòng {rowidx}: có mã đề thiếu đáp án.')
+        lines.append(vals);expected+=1
+    if not lines or len(lines)>43:raise ValueError('Số câu không phù hợp phiếu v17.0.')
+    # Determine consecutive blocks by answer syntax; avoid guessing part boundaries from blank cells.
+    def answer_type(v):
+        u=v.upper().strip()
+        if len(u)==1 and u in 'ABCD':return 1
+        if re.fullmatch('[ĐS]{4}',u):return 2
+        if re.fullmatch(r'-?\d+(?:[,\.]\d+)?',u) and len(u)<=4:return 3
+        return 0
+    categories=[]
+    for ri,vals in enumerate(lines,3):
+        ts={answer_type(v) for v in vals}
+        if len(ts)!=1 or 0 in ts:raise ValueError(f'Dòng {ri}: các mã đề phải cùng dạng đáp án A-D, Đ/S hoặc số.')
+        categories.append(ts.pop())
+    if categories!=sorted(categories):raise ValueError('Các phần phải theo thứ tự: A-D → Đúng/Sai → Trả lời ngắn.')
+    counts=[categories.count(i) for i in (1,2,3)]
+    if any(a>b for a,b in zip(counts,[30,7,6])):raise ValueError('Số câu vượt giới hạn phiếu v17.0 (30/7/6).')
+    if conf:
+        if len(conf)<3:raise ValueError('Sheet Cau hinh chưa đầy đủ.')
+        try: configured=[int(str(x)) for x in conf[2][:3]]
+        except ValueError:raise ValueError('Sheet Cau hinh: số câu không hợp lệ.') from None
+        if configured!=counts:raise ValueError('Sheet Cau hinh không khớp số câu trên sheet Dap an.')
+        settings={}
+        for row in conf[5:]:
+            code=str(row[0]).strip()
+            if not code:continue
+            if not code.isdigit():raise ValueError('Sheet Cau hinh: mã đề không hợp lệ.')
+            try:
+                values=[float(str(row[i]).replace(',','.')) for i in (1,2,3)]
+                policy=str(row[4]).strip()
+                scores=json.loads(row[5])
+                if policy not in ('progressive','per_statement') or not isinstance(scores,list) or len(scores)!=5 or any(not isinstance(v,(int,float)) or v<0 for v in scores):raise ValueError()
+                if any(v<0 or v>10 for v in values):raise ValueError()
+                settings[f'{int(code):03d}']={'points':dict(zip(['part1','part2','part3'],values)),'part2_policy':policy,'part2_progressive_scores':scores}
+            except (ValueError,TypeError,IndexError,KeyError):raise ValueError('Sheet Cau hinh: thang điểm không hợp lệ.') from None
+        if any(c not in settings for _,c in codes):raise ValueError('Sheet Cau hinh thiếu mã đề hoặc thang điểm.')
+    else:
+        # Azota native template has no scoring metadata: apply explicit default, editable in Vzota-generated files.
+        settings={c:{'points':{'part1':round(3/counts[0],8) if counts[0] else 0,'part2':round(1/counts[1],8) if counts[1] else 0,'part3':round(3/counts[2],8) if counts[2] else 0},'part2_policy':'progressive','part2_progressive_scores':[0,.1,.25,.5,1]} for _,c in codes}
+    keys={c:{'part1':{},'part2':{},'part3':{},**settings[c]} for _,c in codes}
+    for q,vals in enumerate(lines):
+        category=categories[q]
+        n=categories[:q+1].count(category)
+        for (_,code),value in zip(codes,vals):
+            value=value.strip().upper()
+            if category==1:keys[code]['part1'][str(n)]=value
+            elif category==2:keys[code]['part2'][str(n)]=list(value)
+            else:keys[code]['part3'][str(n)]=value.replace('.',',')
+    return keys
 
