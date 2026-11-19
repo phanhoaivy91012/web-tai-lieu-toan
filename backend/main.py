@@ -18,10 +18,12 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 import io
+import zipfile
 
 from mixer import MixError, create_variants
 from omr import grade_result, scan_image
 from word_exam import inspect_word, export_zip
+from excel_keys import export_answers_xlsx, import_answers_xlsx
 
 app = FastAPI(title='Vzota OMR API', version='0.2.0')
 origins = [x.strip().rstrip('/') for x in os.getenv('ALLOWED_ORIGINS', '').split(',') if x.strip()]
@@ -159,3 +161,26 @@ async def mix_word_api(
         raise HTTPException(422, f'Không thể trộn Word: {exc}') from exc
     return StreamingResponse(io.BytesIO(content),media_type='application/zip',
         headers={'Content-Disposition':'attachment; filename="Vzota_Word_Mixed.zip"'})
+
+
+@app.post('/api/import-answers-xlsx')
+async def import_answers_excel(file: UploadFile = File(...), _user: dict = Depends(require_teacher)):
+    if not file.filename.lower().endswith('.xlsx'):
+        raise HTTPException(415, 'Chỉ nhận tệp Excel .xlsx do Vzota xuất.')
+    raw=await file.read(5*1024*1024+1)
+    try:
+        keys=await run_in_threadpool(import_answers_xlsx,raw)
+        return {'answer_keys': keys, 'codes': sorted(keys)}
+    except (ValueError,KeyError,IndexError,TypeError,zipfile.BadZipFile) as exc:
+        raise HTTPException(422, f'Lỗi đọc đáp án Excel: {exc}') from exc
+
+
+@app.post('/api/export-answers-xlsx')
+async def export_answers_excel(payload: dict, _user: dict = Depends(require_teacher)):
+    try:
+        raw=await run_in_threadpool(export_answers_xlsx,payload)
+    except (ValueError,KeyError,IndexError,TypeError) as exc:
+        raise HTTPException(422, f'Lỗi xuất đáp án Excel: {exc}') from exc
+    return StreamingResponse(io.BytesIO(raw),
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename="Vzota_bo_dap_an.xlsx"'})
