@@ -15,6 +15,7 @@ from typing import Any
 from docx import Document
 from docx.oxml.ns import qn
 from lxml import etree
+from excel_keys import export_answers_xlsx
 
 PART = re.compile(r'^PHẦN\s+(I|II|III)\.', re.I)
 ABCD = re.compile(r'(?<![A-Za-z])([A-D])\s*[.\)]')
@@ -281,5 +282,6 @@ def export_zip(raw:bytes,count:int,start:int,seed:int):
     with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED) as z:
         for name,data in files:z.writestr(name,data)
         z.writestr('Vzota_bo_dap_an.json',json.dumps(keys,ensure_ascii=False,indent=2))
-        z.writestr('HUONG_DAN.txt','Các mã đề đã trộn thứ tự câu và A/B/C/D của Phần I. Phần II giữ nguyên thứ tự a/b/c/d.\nKiểm tra bản in, hình vẽ, bảng và từng đáp án trước khi phát cho học sinh.\nMẫu phiếu chấm Vzota v17.0.\n')
+        z.writestr('Vzota_bo_dap_an.xlsx',export_answers_xlsx(keys))
+        z.writestr('HUONG_DAN.txt','Dùng Vzota_bo_dap_an.xlsx để nạp đáp án vào tab Chấm hàng loạt; không cần dùng JSON.\nCác mã đề đã trộn thứ tự câu và A/B/C/D của Phần I. Phần II giữ nguyên thứ tự a/b/c/d.\nKiểm tra bản in, hình vẽ, bảng và từng đáp án trước khi phát cho học sinh.\nMẫu phiếu chấm Vzota v17.0.\n')
     return out.getvalue(),keys
