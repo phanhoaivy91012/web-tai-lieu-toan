@@ -230,4 +230,3 @@ def import_answers_xlsx(raw:bytes)->dict:
             elif category==2:keys[code]['part2'][str(n)]=list(value)
             else:keys[code]['part3'][str(n)]=value.replace('.',',')
     return keys
-
