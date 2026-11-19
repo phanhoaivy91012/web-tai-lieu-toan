@@ -1494,6 +1494,58 @@ function MathHtmlBox({ content, className = '' }) {
   );
 }
 
+// Phiên bản đề cố định theo mã HS; KHÔNG thay đổi câu/đáp án gốc trên Drive.
+// Chỉ trộn trong từng phần (I, II, III), có thể đảo ABCD; giữ nội dung HTML/LaTeX nguyên vẹn.
+function vyQuizHash(text) {
+  let h = 2166136261;
+  for (const c of String(text)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function vyQuizShuffle(arr, seed) {
+  const out = [...arr]; let state = seed >>> 0;
+  for (let i = out.length - 1; i > 0; i--) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    const j = state % (i + 1); [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+function vyMakeStudentVariant(original, settings, studentCode) {
+  const count = Math.max(1, Math.min(30, Number(settings?.variantCount) || 1));
+  if (!settings?.mix || count === 1) return { questions: original, examCode: 'GỐC' };
+  const variantIndex = vyQuizHash(`${settings.seed || 2026}:${studentCode || 'TEACHER'}`) % count;
+  const code = String((Number(settings.startCode) || 101) + variantIndex).padStart(3, '0');
+  const groups = ['mcq', 'tf', 'short'];
+  const questions = groups.flatMap(type => {
+    const group = original.filter(q => (q.type || 'mcq') === type);
+    const reordered = vyQuizShuffle(group, vyQuizHash(`${settings.seed}:${code}:${type}:order`));
+    return reordered.map(q => {
+      if (type !== 'mcq' || !settings.shuffleOptions) return { ...q };
+      const options = q.options || [];
+      const positions = vyQuizShuffle(options.map((_, i) => i), vyQuizHash(`${settings.seed}:${code}:${q.id}:${q.question}:abcd`));
+      return { ...q, options: positions.map(i => options[i]), correct: positions.indexOf(Number(q.correct)) };
+    });
+  });
+  return { questions, examCode: code };
+}
+function vyCheckQuizQuestions(questions, importWarnings = []) {
+  const issues = [...importWarnings];
+  if (!questions.length) issues.push('Không nhận diện được câu hỏi nào.');
+  questions.forEach((q, i) => {
+    const label = `Câu ${i + 1}`;
+    if (!String(q.question || '').trim()) issues.push(`${label}: thiếu nội dung câu hỏi`);
+    if (q.type === 'mcq') {
+      if ((q.options || []).length !== 4 || q.options.some(o => !String(o).trim())) issues.push(`${label}: chưa đủ 4 phương án`);
+      if (!Number.isInteger(Number(q.correct)) || Number(q.correct) < 0 || Number(q.correct) > 3) issues.push(`${label}: đáp án ABCD không hợp lệ`);
+    } else if (q.type === 'tf') {
+      if ((q.statements || []).length !== 4) issues.push(`${label}: cần đủ 4 ý Đ/S`);
+    } else if (q.type === 'short' && !String(q.shortAnswer ?? '').trim()) issues.push(`${label}: thiếu đáp án trả lời ngắn`);
+    if (/\\(?:tkz|begin\{tikzpicture\}|includegraphics)/i.test(String(q.question || '') + ' ' + (q.options || []).join(' ')))
+      issues.push(`${label}: còn mã TikZ/đồ thị chưa được kết xuất; cần kiểm tra hình trước khi giao`);
+    if (/\[CHUA_DOC_(?:HINH|CONG_THUC)\]/.test(JSON.stringify(q))) issues.push(`${label}: có hình/công thức không đọc được từ Word`);
+  });
+  return issues;
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('lessons');
   const [selectedGrade, setSelectedGrade] = useState(10);
@@ -1577,6 +1629,15 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [submittedScore, setSubmittedScore] = useState(null);
   const [submissionsList, setSubmissionsList] = useState([]);
   const [rawQuizText, setRawQuizText] = useState('');
+  const [quizImportWarnings, setQuizImportWarnings] = useState([]);
+  const [quizMixEnabled, setQuizMixEnabled] = useState(true);
+  const [quizVariantCount, setQuizVariantCount] = useState(4);
+  const [quizShuffleOptions, setQuizShuffleOptions] = useState(true);
+  const [quizConfirmed, setQuizConfirmed] = useState(false);
+  const [quizExamCode, setQuizExamCode] = useState('');
+  const [quizBusy, setQuizBusy] = useState(false);
+  const [quizFolderNotice, setQuizFolderNotice] = useState('');
+
 
   // Kiểm tra phiên Giáo viên
   useEffect(() => {
@@ -2078,11 +2139,11 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [isLoadingDriveFile, setIsLoadingDriveFile] = useState(false);
 
   // 1. Tạo file mới trên Google Drive
-  const uploadToGoogleDrive = async (fileName, content, mimeType = 'text/html', isBase64 = false) => {
+  const uploadToGoogleDrive = async (fileName, content, mimeType = 'text/html', isBase64 = false, action = 'create') => {
     const res = await fetch(GAS_DRIVE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'create', fileName, content, mimeType, isBase64 })
+      body: JSON.stringify({ action, fileName, content, mimeType, isBase64 })
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Lỗi lưu file lên Google Drive');
@@ -2787,6 +2848,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     }
 
     const fileNameLower = file.name.toLowerCase();
+    setQuizImportWarnings([]); setQuizConfirmed(false);
     try {
       // 1. Nếu là file LaTeX (.tex) hoặc .txt
       if (fileNameLower.endsWith('.tex') || fileNameLower.endsWith('.txt')) {
@@ -2812,13 +2874,17 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
         // Bóc tách toàn bộ Ảnh (PNG/JPG) VÀ Công thức MathType (WMF/EMF) trực tiếp trong trình duyệt
         const mediaMap = {};
+        const wordWarnings = [];
+        if (xmlDoc.getElementsByTagName('w:tbl').length > 0) {
+          wordWarnings.push('Word chứa bảng (có thể là bảng biến thiên/bảng đáp án). Bộ đọc hiện tại chưa bảo toàn bố cục bảng Word. Hãy chuyển bảng thành ảnh PNG rõ nét hoặc dùng LaTeX/SVG và kiểm tra lại.');
+        }
         if (relsXmlStr) {
           const relsDoc = parser.parseFromString(relsXmlStr, 'application/xml');
           const relNodes = Array.from(relsDoc.getElementsByTagName('Relationship'));
           for (const rel of relNodes) {
             const rId = rel.getAttribute('Id');
             const target = rel.getAttribute('Target') || '';
-            const cleanPath = target.startsWith('/') ? target.slice(1) : `word/${target.replace(/^(\.\.\/)+/, '')}`;
+            const cleanPath = target.startsWith('/') ? target.replace(/^\/+/, '') : 'word/' + target.replace(/^\.\.\//, '');
             const zipEntry = zip.file(cleanPath);
             if (!zipEntry) continue;
 
@@ -2832,6 +2898,9 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
               const decodedMath = decodeMathTypeFromWordBinary(wmfBytes, null);
               if (decodedMath) {
                 mediaMap[rId] = { type: 'math', html: ` ${decodedMath} ` };
+              } else {
+                mediaMap[rId] = { type: 'unsupported', html: ' [CHUA_DOC_CONG_THUC] ' };
+                wordWarnings.push('Có công thức MathType WMF/EMF chưa đọc được; cần kiểm tra và chuyển thành LaTeX hoặc ảnh PNG.');
               }
             }
           }
@@ -2871,6 +2940,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
               });
 
               pText += runStr;
+              // OMML có thể nằm trong run: không được bỏ qua biểu thức toán học.
+              Array.from(node.childNodes || []).filter(n => n.nodeName === 'm:oMath' || n.nodeName === 'm:oMathPara').forEach(walkNodes);
             } else if (node.nodeName === 'm:oMath' || node.nodeName === 'm:oMathPara') {
               const mathTexts = Array.from(node.getElementsByTagName('m:t')).map((m) => m.textContent).join('');
               if (mathTexts) pText += ` $${mathTexts}$ `;
@@ -2894,6 +2965,12 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           extractedLines.push(cleanLine);
         }
 
+        if (!extractedLines.length) wordWarnings.push('Không tìm được nội dung văn bản trong Word.');
+        if (!/(?:^|\n)\s*\*[A-D][.)]/m.test(extractedLines.join('\n')) &&
+            !/\b(?:1|2|3)\s*[.: -]\s*[ABCD]\b/m.test(extractedLines.join('\n'))) {
+          wordWarnings.push('Chưa tìm được đáp án ABCD được đánh dấu hoặc bảng đáp án rõ ràng; bộ đọc có thể mặc định A. Hãy bổ sung đáp án trước khi giao.');
+        }
+        setQuizImportWarnings([...new Set(wordWarnings)]);
         setRawQuizText(extractedLines.join('\n'));
       }
     } catch (err) {
@@ -2960,22 +3037,42 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     }
   };
 
+  const moveExistingExercisesToFolder = async () => {
+    if (!isTeacher || !exercises.length) return;
+    if (!window.confirm(`Chuyển ${exercises.length} file đề hiện có vào thư mục “Đề kiểm tra” trên Drive? Không thay đổi ID file hoặc điểm đã lưu.`)) return;
+    setQuizBusy(true); setQuizFolderNotice('Đang chuyển file đề cũ...');
+    let moved=0, failed=[];
+    for (const ex of exercises) {
+      if (!ex.drive_file_id) continue;
+      try {
+        const res=await fetch(GAS_DRIVE_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'move_exercise',fileId:ex.drive_file_id})});
+        const data=await res.json(); if(!data.success) throw new Error(data.error || 'Không chuyển được');
+        moved++;
+      } catch(err){failed.push(`${ex.title}: ${err.message}`);}
+    }
+    setQuizFolderNotice(`Đã chuyển/kiểm tra ${moved} file. ${failed.length ? 'Lỗi: ' + failed.slice(0,3).join('; ') : 'Dữ liệu Supabase không thay đổi.'}`);
+    setQuizBusy(false);
+  };
+
   const addExercise = async () => {
     if (!newTitle.trim() || !rawQuizText.trim()) {
       return alert('Vui lòng nhập Tên đề kiểm tra và tải file .tex / .docx (hoặc dán nội dung câu hỏi)!');
     }
 
     const parsedQuestions = parseAzotaOrTexToQuestions(rawQuizText);
+    const quizIssues = vyCheckQuizQuestions(parsedQuestions, quizImportWarnings);
+    if (quizIssues.length) return alert('Chưa thể giao đề khi còn lỗi cần kiểm tra:\n' + quizIssues.slice(0, 12).join('\n'));
+    if (!quizConfirmed) return alert('Hãy kiểm tra bản xem trước, đáp án và đánh dấu xác nhận trước khi giao.');
     if (parsedQuestions.length === 0) {
       return alert('Không nhận diện được câu hỏi nào! Hãy kiểm tra lại định dạng Câu 1... hoặc \\begin{ex}...');
     }
 
     try {
-      const jsonString = JSON.stringify(parsedQuestions);
+      const jsonString = JSON.stringify({ version: 2, questions: parsedQuestions, settings: { mix: quizMixEnabled, variantCount: Number(quizVariantCount), shuffleOptions: quizShuffleOptions, startCode: 101, seed: 2026 } });
       const driveFileId = await uploadToGoogleDrive(
         `[BAI-TAP-K${selectedGrade}] ${newTitle.trim()}.json`,
         jsonString,
-        'application/json'
+        'application/json', false, 'create_exercise'
       );
 
       const { error } = await supabase.from('exercises').insert([{
@@ -2991,7 +3088,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
       setDriveContentCache((prev) => ({ ...prev, [driveFileId]: jsonString }));
       setNewTitle('');
-      setRawQuizText('');
+      setRawQuizText(''); setQuizConfirmed(false); setQuizImportWarnings([]);
       setSelectedCategory(uploadCategory);
       fetchData();
       alert(`✅ Đã tạo đề "${newTitle.trim()}" (${parsedQuestions.length} câu hỏi chuẩn Azota) và lưu lên Google Drive!`);
@@ -3006,12 +3103,21 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       const jsonStr = await fetchFromGoogleDrive(ex.drive_file_id);
       if (jsonStr) {
         try {
-          loadedExercise.questions_json = JSON.parse(jsonStr);
+          const parsed = JSON.parse(jsonStr);
+          if (Array.isArray(parsed)) loadedExercise.questions_json = parsed;
+          else if (Array.isArray(parsed.questions)) {
+            loadedExercise.questions_json = parsed.questions;
+            loadedExercise.quizSettings = parsed.settings || {};
+          } else throw new Error('Dữ liệu đề không hợp lệ');
         } catch (e) {
-          console.error('Lỗi đọc JSON bài tập:', e);
+          alert('Lỗi đọc đề kiểm tra: ' + e.message); return;
         }
       }
     }
+    const studentCode = isTeacher ? 'TEACHER' : String(currentStudent?.student_code || '');
+    const generated = vyMakeStudentVariant(loadedExercise.questions_json || [], loadedExercise.quizSettings, studentCode);
+    loadedExercise.questions_json = generated.questions;
+    setQuizExamCode(generated.examCode);
     setActiveExercise(loadedExercise);
     setUserAnswers({});
     setSubmittedScore(null);
@@ -3075,14 +3181,15 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
     const finalScore10 = maxPoints > 0 ? Number(((earnedPoints / maxPoints) * 10).toFixed(2)) : 0;
 
-    await supabase.from('submissions').insert([{
+    const { error: submitError } = await supabase.from('submissions').insert([{
       exercise_id: activeExercise.id,
       student_name: sName,
-      student_class: sClass,
+      student_class: quizExamCode && quizExamCode !== 'GỐC' ? `${sClass} | Mã đề ${quizExamCode}` : sClass,
       score: finalScore10,
       total_correct: fullCorrectCount,
       total_questions: questions.length
     }]);
+    if (submitError) { alert('Chưa lưu được điểm lên Supabase: ' + submitError.message); return; }
 
     setSubmittedScore({
       score: finalScore10,
@@ -3780,10 +3887,28 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
 \\loigiai{Dựa vào bảng biến thiên, $y' > 0$ trên $(-\\infty; 0)$ và $(2; +\\infty)$.}
 \\end{ex}`}
                       value={rawQuizText}
-                      onChange={(e) => setRawQuizText(e.target.value)}
+                      onChange={(e) => {setRawQuizText(e.target.value);setQuizConfirmed(false);setQuizImportWarnings([]);}}
                       className="w-full p-3 border rounded-xl text-xs sm:text-sm font-mono bg-slate-50 focus:bg-white"
                     />
 
+                    <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 space-y-2 text-xs">
+                      <div className="flex flex-wrap gap-4 items-center">
+                        <label className="flex gap-2 items-center font-bold"><input type="checkbox" checked={quizMixEnabled} onChange={e => {setQuizMixEnabled(e.target.checked);setQuizConfirmed(false);}}/> Trộn mã đề cho học sinh</label>
+                        <label className="font-semibold">Số mã đề <input type="number" min="1" max="30" value={quizVariantCount} disabled={!quizMixEnabled} onChange={e => {setQuizVariantCount(Math.min(30,Math.max(1,Number(e.target.value)||1)));setQuizConfirmed(false);}} className="w-16 rounded border px-2 py-1"/></label>
+                        <label className="flex gap-2 items-center"><input type="checkbox" checked={quizShuffleOptions} disabled={!quizMixEnabled} onChange={e => {setQuizShuffleOptions(e.target.checked);setQuizConfirmed(false);}}/> Đảo đáp án A/B/C/D</label>
+                      </div>
+                      <p className="text-slate-600">Các mã đề 101 trở đi; mỗi học sinh nhận mã cố định theo mã học sinh. Đảo thứ tự câu trong từng phần, giữ đúng đáp án sau khi đảo A/B/C/D.</p>
+                    </div>
+                    {(() => { const q = parseAzotaOrTexToQuestions(rawQuizText); const issues = vyCheckQuizQuestions(q, quizImportWarnings); return (
+                      <div className="rounded-xl border bg-white p-3 text-xs space-y-2">
+                        <b>Kiểm tra đề trước khi giao: {q.length} câu • {issues.length} cảnh báo</b>
+                        {issues.length > 0 && <div className="bg-rose-50 text-rose-800 p-2 rounded">{issues.slice(0,12).map((x,i)=><p key={i}>• {x}</p>)}</div>}
+                        {!!q.length && <details><summary className="cursor-pointer font-bold text-indigo-700">Xem trước nội dung câu đầu và đáp án</summary>
+                          <div className="mt-2 space-y-2 max-h-80 overflow-auto">{q.slice(0,5).map((item,i)=><div key={i} className="border-b pb-2"><b>Câu {i+1} · {item.type}</b><MathHtmlBox content={item.question}/>{item.type === 'mcq' ? item.options.map((v,j)=><div key={j}>{'ABCD'[j]}. <MathHtmlBox content={v}/></div>) : item.type === 'tf' ? item.statements.map((v,j)=><div key={j}>{'abcd'[j]}) <MathHtmlBox content={v.text}/></div>) : null}<div className="text-emerald-700">Đáp án: {item.type === 'mcq' ? 'ABCD'[item.correct] : item.type === 'short' ? item.shortAnswer : item.statements.map(x=>x.isTrue?'Đ':'S').join('')}</div></div>)}</div>
+                        </details>}
+                        <label className="flex gap-2 items-start font-semibold"><input type="checkbox" checked={quizConfirmed} disabled={issues.length > 0 || !q.length} onChange={e=>setQuizConfirmed(e.target.checked)}/> Tôi đã kiểm tra công thức, hình vẽ, bảng biến thiên và đáp án so với file gốc.</label>
+                      </div>
+                    );})()}
                     {/* Xem trước nhanh số câu đã nhận diện */}
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <span className="text-xs font-bold text-slate-600">
@@ -3795,6 +3920,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                       </span>
 
                       <button
+                        disabled={!quizConfirmed || quizBusy}
                         onClick={addExercise}
                         className="bg-[#2563eb] hover:bg-blue-700 text-white font-extrabold px-6 py-2.5 rounded-xl text-xs sm:text-sm shadow-md transition"
                       >
@@ -3804,6 +3930,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                   </div>
                 )}
 
+                {isTeacher && <div className="bg-white rounded-xl p-3 flex flex-wrap gap-3 items-center justify-between text-xs"><span className="font-bold text-slate-700">📁 Drive: KHO_DU_LIEU_WEB_TOAN / Đề kiểm tra</span><button disabled={quizBusy} onClick={moveExistingExercisesToFolder} className="rounded-lg border border-indigo-300 px-3 py-2 text-indigo-700 font-bold disabled:opacity-50">Chuyển đề cũ vào thư mục này</button>{quizFolderNotice && <p className="w-full text-blue-700">{quizFolderNotice}</p>}</div>}
                 {/* DANH SÁCH ĐỀ KIỂM TRA ĐÃ GIAO */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {exercises.length === 0 && (
@@ -3876,6 +4003,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                       <h2 className="font-extrabold text-lg sm:text-xl text-slate-900 mt-1">
                         {activeExercise.title}
                       </h2>
+                      {quizExamCode && quizExamCode !== 'GỐC' && <p className="mt-1 font-extrabold text-indigo-700 text-sm">Mã đề: {quizExamCode}</p>}
                     </div>
 
                     <button
