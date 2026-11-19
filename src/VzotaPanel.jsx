@@ -248,6 +248,12 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
   const [selected, setSelected] = useState(-1);
   const [notice, setNotice] = useState('');
   const [testName, setTestName] = useState('Kiểm tra Vzota');
+  const [driveExams, setDriveExams] = useState([]);
+  const [driveExamId, setDriveExamId] = useState('');
+  const [driveSaving, setDriveSaving] = useState(false);
+  const [driveAutoSave, setDriveAutoSave] = useState(false);
+  const [driveKeepImages, setDriveKeepImages] = useState(false);
+
   const [classFilter, setClassFilter] = useState('ALL');
   const [filter, setFilter] = useState('all');
   const classes = useMemo(() => [...new Set(students.filter((s) => Number(s.grade) === Number(grade) && s.category === category)
@@ -270,6 +276,89 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
     } catch (e) {setNotice('Lỗi đọc Word: '+e.message);}
     finally {setBusy(false);}
   }
+  async function refreshDriveExams() {
+    try {
+      const data = await apiRequest(supabase,'/api/drive/exams',{method:'GET'});
+      setDriveExams((data.exams || []).filter(e => Number(e.grade) === Number(grade) && e.category === category));
+      setNotice(`Đã tải danh sách ${(data.exams || []).length} bài kiểm tra từ Drive.`);
+    } catch (e) {setNotice('Không mở được kho Vzota Drive: '+e.message);}
+  }
+  async function saveMixedExam(zipBlob) {
+    if (!wordFile) throw new Error('Chưa có Word gốc để lưu vào Drive.');
+    const form = new FormData();
+    form.append('zip_file', zipBlob, 'Vzota_Word_Mixed.zip');
+    form.append('word_file', wordFile, wordFile.name);
+    form.append('title', wordFile.name.replace(/\.docx$/i,''));
+    form.append('grade', String(grade));
+    form.append('category', String(category));
+    const saved = await apiRequest(supabase,'/api/drive/save-exam',{method:'POST',body:form});
+    setDriveExamId(saved.exam.id);
+    setDriveExams(old => [saved.exam,...old.filter(x=>x.id!==saved.exam.id)]);
+    return saved.exam;
+  }
+  async function openSavedExam(examId) {
+    if (!examId) return;
+    setDriveSaving(true);
+    try {
+      const data=await apiRequest(supabase,'/api/drive/open-exam',{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({examId})});
+      const bytes=Uint8Array.from(atob(data.excelBase64),c=>c.charCodeAt(0));
+      const file=new File([bytes],'Dap_an_Vzota.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const form=new FormData();form.append('file',file);
+      const parsed=await apiRequest(supabase,'/api/import-answers-xlsx',{method:'POST',body:form});
+      setKeyText(JSON.stringify(parsed.answer_keys,null,2));
+      setDriveExamId(examId);setTestName(data.exam.title);
+      setResults([]);setSelected(-1);setMode('scan');
+      setNotice(`Đã mở ${data.exam.title}, nạp ${parsed.codes.length} mã đề. Có thể chấm phiếu ngay.`);
+    } catch(e){setNotice('Không mở được bài đã lưu: '+e.message);}
+    finally{setDriveSaving(false);}
+  }
+  function resultsAsCSV() {
+    const csvEscape=v=>`"${String(v ?? '').replace(/"/g,'""')}"`;
+    const rows=[['Tên ảnh','SBD','Mã đề','Họ tên','Lớp','Điểm thang 10','Ô cần xem','Đã duyệt','Đã lưu','Lỗi']];
+    results.forEach(r=>{
+      const student=getMatch(r.scan);const earned=r.scan?.grading?.score;const total=r.scan?.grading?.total;
+      rows.push([r.fileName,r.scan?.student_id,r.scan?.exam_code,student.student?.full_name,student.student?.class_name,
+      total>0?(10*earned/total).toFixed(2):'',r.scan?outstanding(r.scan):'',r.approved?'Có':'Không',r.saved?'Có':'Không',r.error]);
+    });
+    return '\uFEFF'+rows.map(row=>row.map(csvEscape).join(',')).join('\r\n');
+  }
+  function resultsAsJSON() {
+    return JSON.stringify(results.map(r=>({...r,scan:r.scan?{...r.scan,preview:undefined}:null})),null,2);
+  }
+  async function downloadSavedExam(examId, kind='zip') {
+    try {
+      const {data}=await supabase.auth.getSession();
+      const token=data?.session?.access_token;
+      if(!token)throw new Error('Phiên đăng nhập hết hạn.');
+      const res=await fetch(`${API}/api/drive/download-exam`,{
+        method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({examId,kind})});
+      if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.detail||`HTTP ${res.status}`);}
+      downloadBlob(kind==='zip'?'De_da_tron.zip':'De_goc.docx',await res.blob());
+    }catch(e){setNotice('Không tải được file trên Drive: '+e.message);}
+  }
+  async function saveDriveResults() {
+    if(!driveExamId)return setNotice('Chọn bài đã lưu trên Drive trước khi lưu kết quả.');
+    if(!results.length)return setNotice('Chưa có bài chấm để lưu.');
+    setDriveSaving(true);
+    try {
+      await apiRequest(supabase,'/api/drive/save-results',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({examId:driveExamId,resultsJson:resultsAsJSON(),resultsCsv:resultsAsCSV()})});
+      let savedImages=0;
+      if(driveKeepImages){
+        for(const f of files){
+          if(f.size>5*1024*1024)continue;
+          const form=new FormData();form.append('examId',driveExamId);form.append('image',f);
+          await apiRequest(supabase,'/api/drive/save-image',{method:'POST',body:form});
+          savedImages++;
+        }
+      }
+      setNotice(`Đã lưu kết quả vào Drive (${savedImages} ảnh gốc). Điểm chỉ được ghi Supabase khi bạn bấm “Lưu điểm”.`);
+    }catch(e){setNotice('Lỗi lưu kết quả Drive: '+e.message);}
+    finally{setDriveSaving(false);}
+  }
+
   async function mixWordFile() {
     if (!wordFile || !wordInfo || !wordConfirmed || wordInfo.warnings.length) return;
     setBusy(true);setNotice('');
@@ -282,10 +371,18 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
       form.append('starting_code',String(codeStart));form.append('seed',String(seed));
       const res=await fetch(`${API}/api/mix-word`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:form});
       if (!res.ok) {const err=await res.json().catch(()=>({}));throw new Error(err.detail || `HTTP ${res.status}`);}
-      const blob=await res.blob();const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');a.href=url;a.download='Vzota_Word_Mixed.zip';a.click();
-      setTimeout(()=>URL.revokeObjectURL(url),2000);
-      setNotice('Đã tải ZIP có đề Word và đáp án Excel dạng Azota (mỗi mã đề một cột). Khi chấm hãy nạp chính file Excel trong ZIP.');
+      const blob=await res.blob();
+      downloadBlob('Vzota_Word_Mixed.zip',blob);
+      if (driveAutoSave) {
+        try {
+          const saved=await saveMixedExam(blob);
+          setNotice(`Đã trộn đề, tải ZIP và lưu riêng tư lên Drive: ${saved.title}.`);
+        }catch (driveErr) {
+          setNotice('Đã tải ZIP về máy nhưng KHÔNG lưu được Drive: '+driveErr.message);
+        }
+      } else {
+        setNotice('Đã tải ZIP có đề Word và đáp án Excel. Chọn “Tự lưu lên Drive” trước khi trộn nếu cần lưu online.');
+      }
     }catch(e){setNotice('Lỗi trộn Word: '+e.message);}finally{setBusy(false);}
   }
 
@@ -325,7 +422,16 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
       });
       setVariants(response.variants); setResults([]); setSelected(-1);
       setKeyText(JSON.stringify(Object.fromEntries(response.variants.map((v) => [v.exam_code, v.answer_key])), null, 2));
-      setNotice(`Đã trộn ${response.variants.length} mã đề và chuyển bộ đáp án sang phần chấm.`);
+      if(driveAutoSave){
+        try {
+          const saved=await apiRequest(supabase,'/api/drive/save-bank',{
+            method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+              title:bank.title||'Kiểm tra Vzota',grade,category,variants:response.variants,
+              keys:Object.fromEntries(response.variants.map(v=>[v.exam_code,v.answer_key]))})});
+          setDriveExamId(saved.exam.id);setDriveExams(old=>[saved.exam,...old]);
+          setNotice(`Đã trộn ${response.variants.length} mã đề và lưu ngân hàng + Excel đáp án lên Drive.`);
+        }catch(e){setNotice(`Đã trộn thành công nhưng không lưu Drive: ${e.message}`);}
+      }else setNotice(`Đã trộn ${response.variants.length} mã đề và chuyển bộ đáp án sang phần chấm.`);
     } catch (e) { setNotice(`Lỗi trộn đề: ${e.message}`); }
     finally { setBusy(false); }
   }
@@ -467,23 +573,8 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
     setBusy(false);
     setNotice(`Đã lưu ${saved} điểm vào Supabase. ${failures.length ? `Chưa lưu ${failures.length}: ${failures.slice(0, 4).join('; ')}` : 'Không có lỗi.'}`);
   }
-  function exportCSV() {
-    const csvEscape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const rows = [['Tên ảnh', 'SBD', 'Mã đề', 'Họ tên', 'Lớp', 'Điểm thang 10', 'Ô cần xem', 'Đã duyệt', 'Đã lưu', 'Lỗi']];
-    results.forEach((r) => {
-      const student = getMatch(r.scan);
-      const earned = r.scan?.grading?.score;
-      const total = r.scan?.grading?.total;
-      rows.push([r.fileName, r.scan?.student_id, r.scan?.exam_code,
-        student.student?.full_name, student.student?.class_name,
-        total > 0 ? (10 * earned / total).toFixed(2) : '', r.scan ? outstanding(r.scan) : '',
-        r.approved ? 'Có' : 'Không', r.saved ? 'Có' : 'Không', r.error]);
-    });
-    downloadFile('Vzota_bang_diem.csv', '\uFEFF' + rows.map((r) => r.map(csvEscape).join(',')).join('\r\n'), 'text/csv');
-  }
-  function exportJSON() {
-    downloadFile('Vzota_ket_qua.json', JSON.stringify(results.map((r) => ({ ...r, scan: r.scan ? { ...r.scan, preview: undefined } : null })), null, 2));
-  }
+  function exportCSV() { downloadFile('Vzota_bang_diem.csv',resultsAsCSV(),'text/csv'); }
+  function exportJSON() { downloadFile('Vzota_ket_qua.json',resultsAsJSON()); }
 
   const visibleRows = results.map((r, i) => ({ ...r, idx: i })).filter((r) => {
     if (filter === 'issues') return !!r.error || !r.scan?.grading || outstanding(r.scan) > 0 || getMatch(r.scan).state !== 'matched';
@@ -520,6 +611,7 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
                   {['part1','part2','part3'].map((part,idx)=><div key={part} className="my-1"><b>Phần {['I','II','III'][idx]}: </b>{Object.entries(wordInfo.answers[part]||{}).map(([n,a])=>`${n}: ${Array.isArray(a)?a.join(''):a ?? '?'}; `)}</div>)}
                 </details>
                 <label className="flex items-start gap-2"><input type="checkbox" checked={wordConfirmed} onChange={e=>setWordConfirmed(e.target.checked)}/> Tôi đã so sánh đáp án với file Word gốc và chấp nhận chỉ đảo thứ tự câu hỏi.</label>
+                <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={driveAutoSave} onChange={e=>setDriveAutoSave(e.target.checked)}/> Tự lưu Word gốc, ZIP và Excel đáp án riêng tư lên Drive hiện tại sau khi trộn (cần cấu hình Drive an toàn).</label>
                 <button className={primary} disabled={busy || !wordConfirmed || wordInfo.warnings?.length>0} onClick={mixWordFile}><Shuffle size={14}/> Trộn Word + xuất Excel kiểu Azota (.zip)</button>
               </div>}
             </div>
@@ -536,9 +628,15 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
               <label className="text-xs font-bold text-slate-700">Hạt trộn<input className={`${input} mt-1`} type="number" value={seed} onChange={(e) => setSeed(e.target.value)}/></label>
             </div>
             <label className="flex items-start gap-2 rounded-xl bg-amber-50 p-2 text-xs font-semibold text-amber-900"><input type="checkbox" checked={bankVerified} onChange={(e) => setBankVerified(e.target.checked)} /> Tôi đã kiểm tra đầy đủ nội dung và đáp án các câu, đặc biệt đáp án được tách từ Word.</label>
-            <button disabled={busy || !bankVerified} className={primary} onClick={handleMix}><Shuffle size={15}/> Trộn đề và tạo đáp án</button>
+            <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={driveAutoSave} onChange={e=>setDriveAutoSave(e.target.checked)}/> Tự lưu các mã đề JSON và Excel đáp án lên Drive sau khi trộn</label>
+             <button disabled={busy || !bankVerified} className={primary} onClick={handleMix}><Shuffle size={15}/> Trộn đề và tạo đáp án</button>
           </section>
           <section className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm lg:col-span-5">
+            <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+              <h3 className="font-extrabold text-indigo-900">Kho đề Vzota trên Google Drive</h3>
+              <button className={secondary} disabled={driveSaving||busy} onClick={refreshDriveExams}><RefreshCw size={14}/> Tải danh sách đề đã lưu</button>
+              {driveExams.length ? <div className="space-y-1">{driveExams.map(ex=><div key={ex.id} className="flex items-center justify-between gap-2 rounded bg-white p-2 text-xs"><span className="truncate">{ex.title} • {ex.createdAt?.slice(0,10)}</span><div className="flex gap-1"><button className={primary} disabled={driveSaving} onClick={()=>openSavedExam(ex.id)}>Mở để chấm</button><button className={secondary} onClick={()=>downloadSavedExam(ex.id)}>Tải ZIP</button></div></div>)}</div> : <p className="text-xs text-slate-500">Chưa tải hoặc chưa có bài thi đã lưu.</p>}
+            </div>
             <h3 className="font-extrabold text-slate-800">Danh sách mã đề đã tạo ({variants.length})</h3>
             {variants.length > 0 && <div className="flex flex-wrap gap-2"><button className={secondary} onClick={() => downloadFile('Vzota_cac_ma_de.json', JSON.stringify(variants, null, 2))}><Download size={14}/> Tải toàn bộ đề</button>
               <button className={secondary} disabled={busy} onClick={() => exportExcelKeys()}><Download size={14}/> Tải Excel đáp án</button>
@@ -563,7 +661,13 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
               <textarea rows={7} spellCheck={false} placeholder='Dán JSON dạng {"101":{"part1": {...}, ...}, "102": {...}}' className={`${input} font-mono text-xs`} value={keyText} onChange={(e) => { setKeyText(e.target.value); setResults([]); }}/>
               {parsedKeys.error && <p className="text-xs text-rose-700">JSON chưa hợp lệ: {parsedKeys.error}</p>}
               </details>
-              <label className="block text-xs font-bold text-slate-700">Tên bài kiểm tra lưu trong sổ điểm<input className={`${input} mt-1`} value={testName} onChange={(e) => setTestName(e.target.value)} placeholder="VD: Kiểm tra giữa kỳ I"/></label>
+                             <div className="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                 <h4 className="text-xs font-extrabold text-indigo-900">Đề đã lưu trên Google Drive</h4>
+                 <div className="flex flex-wrap gap-2"><button disabled={driveSaving||busy} className={secondary} onClick={refreshDriveExams}><RefreshCw size={14}/> Tải danh sách</button></div>
+                 <select className={input} value={driveExamId} disabled={driveSaving||busy} onChange={e=>openSavedExam(e.target.value)}><option value="">— Chọn bài kiểm tra đã lưu —</option>{driveExams.map(ex=><option key={ex.id} value={ex.id}>{ex.title} (K{ex.grade})</option>)}</select>
+                 <p className="text-[11px] text-slate-600">Mở bài kiểm tra sẽ tự nạp Excel đáp án từ Drive. Đề và đáp án không cấp quyền chia sẻ công khai.</p>
+               </div>
+<label className="block text-xs font-bold text-slate-700">Tên bài kiểm tra lưu trong sổ điểm<input className={`${input} mt-1`} value={testName} onChange={(e) => setTestName(e.target.value)} placeholder="VD: Kiểm tra giữa kỳ I"/></label>
               <label className="block text-xs font-bold text-slate-700">Lớp cần chấm<select className={`${input} mt-1`} value={classFilter} onChange={(e) => { setClassFilter(e.target.value); setResults((old) => old.map((r) => ({ ...r, approved: false }))); }}><option value="ALL">Tất cả lớp thuộc phân hệ này</option>{classes.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
             </section>
             <section className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm lg:col-span-7">
@@ -578,8 +682,9 @@ export default function VzotaPanel({ supabase, students = [], exercises = [], lo
           </div>
           {results.length > 0 && <section className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-extrabold text-slate-800">3. Bảng chấm hàng loạt ({results.length})</h3><p className="text-xs text-slate-500">Đã duyệt: {approvedRows.length} • Cần kiểm tra: {results.filter((r) => !r.scan || outstanding(r.scan) > 0 || getMatch(r.scan).state !== 'matched').length}</p></div>
-              <div className="flex flex-wrap gap-2"><button className={secondary} disabled={busy || scopeChanged} onClick={approveClean}><CheckCircle2 size={14}/> Đánh dấu phiếu hợp lệ</button><button className={secondary} onClick={exportCSV}><Download size={14}/> Xuất CSV</button><button className={secondary} onClick={exportJSON}><Download size={14}/> Sao lưu JSON</button><button disabled={busy || !approvedRows.length} className={primary} onClick={saveScores}><Save size={14}/> Lưu {approvedRows.length} điểm</button></div></div>
-            {scopeChanged && <p className="rounded-lg bg-rose-50 p-2 text-xs font-bold text-rose-700">Bạn đã thay đổi khối/lớp/phân hệ sau khi quét. Kết quả lô cũ không được lưu; hãy chọn lại ảnh và quét mới.</p>}
+              <div className="flex flex-wrap gap-2"><button className={secondary} disabled={busy || scopeChanged} onClick={approveClean}><CheckCircle2 size={14}/> Đánh dấu phiếu hợp lệ</button><button className={secondary} onClick={exportCSV}><Download size={14}/> Xuất CSV</button><button className={secondary} onClick={exportJSON}><Download size={14}/> Sao lưu JSON</button><button className={secondary} disabled={driveSaving||busy||!driveExamId} onClick={saveDriveResults}><Save size={14}/> Lưu kết quả vào Drive</button><button disabled={busy || !approvedRows.length} className={primary} onClick={saveScores}><Save size={14}/> Lưu {approvedRows.length} điểm</button></div></div>
+                         <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={driveKeepImages} onChange={e=>setDriveKeepImages(e.target.checked)} /> Lưu kèm ảnh phiếu gốc lên Drive (tùy chọn, mỗi ảnh tối đa 5MB; không tự lưu ảnh nếu không chọn)</label>
+{scopeChanged && <p className="rounded-lg bg-rose-50 p-2 text-xs font-bold text-rose-700">Bạn đã thay đổi khối/lớp/phân hệ sau khi quét. Kết quả lô cũ không được lưu; hãy chọn lại ảnh và quét mới.</p>}
             <select className={`${input} max-w-52`} value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Hiển thị tất cả</option><option value="issues">Phiếu cần xử lý</option><option value="approved">Phiếu đã duyệt</option></select>
             <div className="max-h-[430px] overflow-auto rounded-xl border"><table className="w-full min-w-[850px] text-left text-xs"><thead className="sticky top-0 bg-slate-100 text-slate-600"><tr>{['Ảnh', 'SBD', 'Mã đề', 'Học sinh', 'Điểm /10', 'Trạng thái', 'Duyệt'].map((t) => <th key={t} className="p-2.5">{t}</th>)}</tr></thead><tbody className="divide-y">{visibleRows.map((r) => {
               const matching = getMatch(r.scan);
