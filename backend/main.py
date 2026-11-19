@@ -184,3 +184,5 @@ async def export_answers_excel(payload: dict, _user: dict = Depends(require_teac
     return StreamingResponse(io.BytesIO(raw),
         media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         headers={'Content-Disposition': 'attachment; filename="Vzota_bo_dap_an.xlsx"'})
+from drive_api import register_drive_routes
+register_drive_routes(app, require_teacher)
