@@ -1,8 +1,10 @@
 /**
  * Word Azota importer — OOXML structural parser.
  * Does not guess unknown correct answers. Original inline math/image order preserved.
- * Requires JSZip in browser, accepts existing WMF SVG decoder from App.jsx.
+ * Uses the GDI metafile converter for raster previews instead of the former custom WMF→SVG text approximation.
  */
+import { convertMetafileToDataUrl } from 'emf-converter';
+
 const WORD = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const MATH = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
 const VML = 'urn:schemas-microsoft-com:vml';
@@ -92,8 +94,8 @@ function isSolution(s){return /^(?:Lời\s*giải|Hướng\s*dẫn\s*giải|Gi�
 function isAnswer(s){return /^(?:Đáp\s*án|Đáp\s*số|ĐS|Kết\s*quả|Answer)\s*[:：=]/i.test(compact(s));}
 const newQuestion=(sectionName,index)=>({id:index,type:sectionName,question:'',options:['','','',''],correct:null,statements:[],shortAnswer:'',solution:'',parseWarning:'',_stem:[],_options:{},_statements:{},_correctLabels:[],_parts:[],_warnings:[],_solution:[],_answerText:[],_format:'',_active:''});
 
-/** @param {ArrayBuffer} buffer @param {*} zipLib window.JSZip @param {Function} decodeWmf Existing WMF→SVG decoder */
-export async function parseAzotaWordFile(buffer,zipLib,decodeWmf) {
+/** @param {ArrayBuffer} buffer @param {*} zipLib window.JSZip @param {Function} _legacyDecodeWmf Ignored, retained for App.jsx compatibility */
+export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
   if (!buffer || buffer.byteLength>30*1024*1024)throw new Error('File Word quá 30 MB. Hãy giảm dung lượng ảnh trước khi nhập.');
   const zip=await zipLib.loadAsync(buffer);
   const xml=await zip.file('word/document.xml')?.async('string');
@@ -107,34 +109,92 @@ export async function parseAzotaWordFile(buffer,zipLib,decodeWmf) {
     if(local(n)==='Relationship') rels.set(attr(n,'Id'),attr(n,'Target'));
   }
   const media={};const notes=[];const hard=[];const resourceCache=new Map();
+  const convertedCache=new Map();const specialFonts=new Set();
   const mediaStats={mathTypeWmf:0,emf:0,bitmap:0,omml:0,tables:0,unrendered:0};
   let nextMedia=0;
   const addMedia=async(html,tag='WIMG')=>{const k=`⟦${tag}${++nextMedia}⟧`;media[k]=html;return k;};
-  const resolveImage=async rId=>{
+
+  // Word records actual VML/OOXML dimensions. Never invent glyph positions or font metrics.
+  const readWordSize=node=>{
+    const shape=descend(node,'shape')[0];
+    const style=attr(shape,'style');
+    const dim=axis=>{
+      const match=style.match(new RegExp('(?:^|;)\\s*'+axis+'\\s*:\\s*([0-9.]+)\\s*(pt|in|px|cm|mm)?','i'));
+      if(!match)return 0;
+      const n=Number(match[1]);const unit=(match[2]||'pt').toLowerCase();
+      const pt=n*({pt:1,in:72,px:.75,cm:72/2.54,mm:72/25.4}[unit]||1);
+      return Number.isFinite(pt)&&pt>0&&pt<1500?pt:0;
+    };
+    let widthPt=dim('width');let heightPt=dim('height');
+    if(!widthPt || !heightPt){
+      const extent=descend(node,'extent')[0];
+      if(extent){widthPt ||= Number(attr(extent,'cx'))/12700;heightPt ||= Number(attr(extent,'cy'))/12700;}
+    }
+    return {w:widthPt||0,h:heightPt||0};
+  };
+  const imageStyle=(dimensions,isFormula)=>{
+    const {w,h}=dimensions||{};
+    // Enlarged Word pt dimensions for the large-font online quiz. Preserve exact aspect ratio.
+    const scaled= w>0 && h>0 && w/h<40 && h/w<40;
+    const size=scaled ? `width:${Math.max(12,Math.min(1200,Math.round(w*1.9)))}px;height:${Math.max(12,Math.min(750,Math.round(h*1.9)))}px;` : '';
+    return `${size}max-width:100%;object-fit:contain;display:inline-block;vertical-align:${isFormula?'-0.22em':'middle'};`;
+  };
+  // Legacy MathType uses Windows fonts; report custom faces for mandatory teacher review.
+  const wmfFontFaces=bytes=>{
+    const result=new Set();
+    try{
+      const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+      let p=v.getUint32(0,true)===0x9ac6cdd7?22:0;p+=18;
+      for(let i=0;p+6<=bytes.length&&i<5000;i++){
+        const size=v.getUint32(p,true)*2,op=v.getUint16(p+4,true);
+        if(size<6||p+size>bytes.length)break;
+        if(op===0x02fb && size>=28){
+          const begin=p+24;let name='';
+          for(let j=begin;j<p+size && bytes[j]!==0 && j<begin+64;j++)name+=String.fromCharCode(bytes[j]);
+          if(name.trim())result.add(name.trim());
+        }
+        if(op===0)break;
+        p+=size;
+      }
+    }catch(_){/* A broken metafile is handled by converter and validation. */}
+    return result;
+  };
+  const resolveImage=async(rId,dimensions)=>{
     if(!rId)return '';
-    if(resourceCache.has(rId))return resourceCache.get(rId);
-    const target=rels.get(rId);if(!target)return '';
+    const dims=dimensions||{w:0,h:0};
+    const cacheKey=`${rId}|${dims.w.toFixed(2)}|${dims.h.toFixed(2)}`;
+    if(resourceCache.has(cacheKey))return resourceCache.get(cacheKey);
+    const target=rels.get(rId);if(!target){mediaStats.unrendered++;const k=await addMedia('[CHUA_DOC_HINH]');resourceCache.set(cacheKey,k);return k;}
     const path=cleanPath(target);
     const entry=zip.file(path);
-    if(!entry){mediaStats.unrendered++;const k=await addMedia('[CHUA_DOC_HINH]');resourceCache.set(rId,k);return k;}
+    if(!entry){mediaStats.unrendered++;const k=await addMedia('[CHUA_DOC_HINH]');resourceCache.set(cacheKey,k);return k;}
     const ext=(target.match(/\.([^.?#]+)(?:[?#]|$)/)?.[1]||'').toLowerCase();
     let html='';
     if(['png','jpg','jpeg','gif','webp','bmp'].includes(ext)) {
       mediaStats.bitmap++;
       const mime=ext==='jpg'?'jpeg':ext;
-      html=`<img alt="Hình trong đề Word" src="data:image/${mime};base64,${await entry.async('base64')}" style="display:inline-block;max-width:100%;max-height:350px;height:auto;vertical-align:middle"/>`;
-    } else if(ext==='wmf') {
-      mediaStats.mathTypeWmf++;
-      try {const svg=decodeWmf(await entry.async('uint8array'));
-        if(svg && /^\s*<svg\b/i.test(svg))html=`<span class="inline-block align-middle max-w-full" title="Công thức WMF chuyển SVG, cần đối chiếu">${svg}</span>`;
-      } catch(_){/* Missing glyphs remain blocking */}
-      if(!html) {mediaStats.unrendered++;html='[CHUA_DOC_CONG_THUC]';}
-    } else if(ext==='emf') {
-      mediaStats.emf++;mediaStats.unrendered++;html='[CHUA_DOC_CONG_THUC]';
+      html=`<img alt="Hình gốc trong đề Word" src="data:image/${mime};base64,${await entry.async('base64')}" style="${imageStyle(dims,false)}max-height:450px;"/>`;
+    } else if(ext==='wmf'||ext==='emf') {
+      if(ext==='wmf')mediaStats.mathTypeWmf++;else mediaStats.emf++;
+      try {
+        let png=convertedCache.get(path);
+        if(png===undefined){
+          const bytes=await entry.async('uint8array');
+          if(ext==='wmf')for(const face of wmfFontFaces(bytes)){
+            if(/(?:MT\s*Extra|Euclid|MathType|VNI-)/i.test(face))specialFonts.add(face);
+          }
+          png=await convertMetafileToDataUrl(bytes, {dpiScale:2, maxWidth:1600, maxHeight:1000});
+          convertedCache.set(path,png || null);
+        }
+        if(typeof png==='string' && png.startsWith('data:image/png;base64,')) {
+          html=`<img alt="Công thức hoặc hình gốc từ WMF/EMF" src="${png}" style="${imageStyle(dims,true)}"/>`;
+        }
+      } catch(err) { notes.push(`Không thể kết xuất ${ext.toUpperCase()}: ${String(err?.message||err).slice(0,90)}`); }
+      if(!html){mediaStats.unrendered++;html='[CHUA_DOC_CONG_THUC]';}
     } else {
       mediaStats.unrendered++;html='[CHUA_DOC_HINH]';
     }
-    const k=await addMedia(html);resourceCache.set(rId,k);return k;
+    const k=await addMedia(html);resourceCache.set(cacheKey,k);return k;
   };
   const metaFor=(r)=>{
     const pr=first(r,'rPr');const u=first(pr,'u');
@@ -174,7 +234,8 @@ export async function parseAzotaWordFile(buffer,zipLib,decodeWmf) {
           const rid=attr(child,'embed',REL)||attr(child,'id',REL);
           if(rid&&!ids.includes(rid))ids.push(rid);
         }
-        for(const id of ids)append(await resolveImage(id),false);
+        const dimensions=readWordSize(node);
+        for(const id of ids)append(await resolveImage(id,dimensions),false);
         return;
       }
       if(ns===WORD && ['pPr','rPr','numPr','proofErr','bookmarkStart','bookmarkEnd','lastRenderedPageBreak'].includes(n))return;
@@ -208,8 +269,9 @@ export async function parseAzotaWordFile(buffer,zipLib,decodeWmf) {
       const mark=await addMedia(table,'WTABLE');lines.push({text:mark,runs:[],numbered:false});
     }
   }
-  if(mediaStats.mathTypeWmf)notes.push(`Có ${mediaStats.mathTypeWmf} ảnh WMF (thường là MathType); SVG được dựng xấp xỉ, phải đối chiếu với Word gốc trước khi giao.`);
-  if(mediaStats.emf)notes.push(`Có ${mediaStats.emf} ảnh EMF không hỗ trợ kết xuất an toàn trong trình duyệt.`);
+  if(mediaStats.mathTypeWmf)notes.push(`Đã xử lý ${mediaStats.mathTypeWmf} WMF bằng bộ dựng GDI thành PNG. Không còn dựng từng ký tự thành SVG; vẫn phải duyệt vì font MathType có thể thiếu trên thiết bị.`);
+  if(specialFonts.size)notes.push(`Công thức sử dụng font chuyên dụng (${[...specialFonts].join(', ')}). Trên thiết bị không có font này, ký hiệu có thể khác Word; hãy đối chiếu TẤT CẢ công thức và không giao nếu khác.`);
+  if(mediaStats.emf)notes.push(`Đã thử chuyển ${mediaStats.emf} EMF; nếu có EMF lỗi sẽ chặn giao đề.`);
   if(mediaStats.tables)notes.push(`Có ${mediaStats.tables} bảng Word; đã giữ cấu trúc hàng/cột ở HTML, cần kiểm tra độ rộng và công thức trong ô.`);
   if(mediaStats.unrendered)hard.push(`Có ${mediaStats.unrendered} hình/công thức chưa kết xuất được.`);
   const questions=[];let sectionNow='mcq';let current=null;let autoIndex=0;let optionsSeen=false;
