@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import VzotaPanel from './VzotaPanel';
+import { parseAzotaWordFile } from './azotaWordParser';
 import { 
   BookOpen, FileText, CheckSquare, Info, Lock, LogOut, 
   Eye, EyeOff, Key, Plus, Trash2, Upload, Award, Users, 
@@ -269,6 +270,25 @@ function cleanBrokenVietnamesePdfText(str) {
 // - Phần II: Trắc nghiệm Đúng/Sai a), b), c), d)
 // - Phần III: Trả lời ngắn (Đáp số)
 // ============================================================================
+// Tách phương án Azota đặt trên CÙNG một đoạn Word (A... B... C... D...).
+// Dấu tab trong Word được giữ riêng để không làm mất ranh giới giữa các ô.
+function vySplitAzotaOptionLine(line) {
+  const text = String(line || '').trim();
+  // Lọc các ký hiệu đứng đầu phương án, kể cả dấu * của đáp án gạch chân.
+  const re = /(^|[\t ]+)(\*?[A-D][.)])(?=\s|\$|<|\\|\u00a0|$)/g;
+  const matches = [...text.matchAll(re)];
+  if (!matches.length) return [text];
+  const first = matches[0];
+  const start = first.index + first[1].length;
+  const prefix = text.slice(0, start).trim();
+  const chunks = prefix ? [prefix] : [];
+  for (let i=0;i<matches.length;i++) {
+    const begin = matches[i].index + matches[i][1].length;
+    const end = i+1<matches.length ? matches[i+1].index : text.length;
+    chunks.push(text.slice(begin,end).trim());
+  }
+  return chunks.filter(Boolean);
+}
 function parseSmartMathContentToSlides(lessonTitle, rawText) {
   const slides = [];
   const cleanTitle = (lessonTitle || 'BÀI GIẢNG TOÁN').toUpperCase();
@@ -281,7 +301,7 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
   }
 
   // Chia các khối theo từ khóa Câu 1, Câu 2... hoặc [LT]
-  const lines = rawText.replace(/\r\n/g, '\n').split('\n');
+  const lines = rawText.replace(/\r\n/g, '\n').split('\n').flatMap(vySplitAzotaOptionLine);
   let currentPart = 'PHẦN I. CÂU TRẮC NGHIỆM';
   let currentBlocks = [];
   let tempBlock = [];
@@ -385,7 +405,8 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
     // Kiểm tra xem có các mệnh đề a), b), c), d) (Dạng ĐÚNG/SAI) hay không
     const tfStatements = [];
     const mcqOptions = [];
-    let detectedCorrectIdx = answerKeyMap[qNum] !== undefined ? answerKeyMap[qNum] : 0;
+    let duplicateOptionLabel = false;
+    let detectedCorrectIdx = answerKeyMap[qNum] !== undefined ? answerKeyMap[qNum] : null;
     let shortAnsValue = '';
 
     expandedBodyLines.forEach(line => {
@@ -413,7 +434,8 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
       } else if (mcqMatch) {
         const optIdx = ['A', 'B', 'C', 'D'].indexOf(mcqMatch[2].toUpperCase());
         if (mcqMatch[1] === '*') detectedCorrectIdx = optIdx;
-        mcqOptions.push(mcqMatch[3].trim());
+        if (mcqOptions[optIdx] !== undefined) duplicateOptionLabel = true;
+        mcqOptions[optIdx] = mcqMatch[3].trim();
       } else if (shortMatch) {
         shortAnsValue = shortMatch[2].trim();
       } else if (tfStatements.length === 0 && mcqOptions.length === 0) {
@@ -450,7 +472,7 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
     }
 
     // 3. DẠNG TRẢ LỜI NGẮN (PHẦN III)
-    if (shortAnsValue || (mcqOptions.length === 0 && blk.part.includes('PHẦN III'))) {
+    if (shortAnsValue || (mcqOptions.filter(Boolean).length === 0 && blk.part.includes('PHẦN III'))) {
       slides.push({
         lesson: 1,
         lessonTitle: cleanTitle,
@@ -466,9 +488,7 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
     }
 
     // 4. DẠNG TRẮC NGHIỆM 4 PHƯƠNG ÁN (PHẦN I)
-    while (mcqOptions.length < 4) {
-      mcqOptions.push(`Phương án ${['A', 'B', 'C', 'D'][mcqOptions.length]}`);
-    }
+    // Không tạo nội dung giả và không tự chọn A nếu Word thiếu dữ liệu.
     slides.push({
       lesson: 1,
       lessonTitle: cleanTitle,
@@ -477,8 +497,9 @@ function parseSmartMathContentToSlides(lessonTitle, rawText) {
       type: 'mcq',
       label: qLabel,
       prompt: fullPrompt,
-      options: mcqOptions.slice(0, 4),
+      options: Array.from({ length: 4 }, (_,i) => mcqOptions[i] || ''),
       correctIndex: detectedCorrectIdx,
+      parseWarning: duplicateOptionLabel ? 'Trùng nhãn phương án A/B/C/D trong Word' : '',
       solution: fullSolution
     });
   });
@@ -1411,7 +1432,7 @@ function parseAzotaOrTexToQuestions(rawInput) {
         const parts = block.split(/\\(?:choice|motcot|haicot|boncot)(?:\[[^\]]*\])?/i);
         const qPrompt = cleanLatexToHtmlMath(parts[0]);
         const rawOpts = extractLatexBraceArgs(parts[1] || '').slice(0, 4);
-        let correctIndex = 0;
+        let correctIndex = null;
         const options = rawOpts.map((opt, idx) => {
           if (/\\True\b/i.test(opt)) correctIndex = idx;
           return cleanLatexToHtmlMath(opt.replace(/\\True\b/gi, '').trim());
@@ -1459,7 +1480,7 @@ function parseAzotaOrTexToQuestions(rawInput) {
         type: 'mcq',
         question: promptWithFig,
         options: s.options,
-        correct: s.correctIndex || 0,
+        correct: s.correctIndex,
         solution: s.solution
       };
     });
@@ -1533,11 +1554,13 @@ function vyCheckQuizQuestions(questions, importWarnings = []) {
   questions.forEach((q, i) => {
     const label = `Câu ${i + 1}`;
     if (!String(q.question || '').trim()) issues.push(`${label}: thiếu nội dung câu hỏi`);
+    if (q.parseWarning) issues.push(`${label}: ${q.parseWarning}`);
     if (q.type === 'mcq') {
       if ((q.options || []).length !== 4 || q.options.some(o => !String(o).trim())) issues.push(`${label}: chưa đủ 4 phương án`);
-      if (!Number.isInteger(Number(q.correct)) || Number(q.correct) < 0 || Number(q.correct) > 3) issues.push(`${label}: đáp án ABCD không hợp lệ`);
+      if (q.correct === null || q.correct === undefined || !Number.isInteger(Number(q.correct)) || Number(q.correct) < 0 || Number(q.correct) > 3) issues.push(`${label}: đáp án ABCD không hợp lệ`);
     } else if (q.type === 'tf') {
       if ((q.statements || []).length !== 4) issues.push(`${label}: cần đủ 4 ý Đ/S`);
+      if ((q.statements || []).some(s=>!s?.text?.trim() || typeof s.isTrue !== 'boolean')) issues.push(`${label}: thiếu nội dung hoặc đáp án Đ/S chưa được xác định`);
     } else if (q.type === 'short' && !String(q.shortAnswer ?? '').trim()) issues.push(`${label}: thiếu đáp án trả lời ngắn`);
     if (/\\(?:tkz|begin\{tikzpicture\}|includegraphics)/i.test(String(q.question || '') + ' ' + (q.options || []).join(' ')))
       issues.push(`${label}: còn mã TikZ/đồ thị chưa được kết xuất; cần kiểm tra hình trước khi giao`);
@@ -1630,6 +1653,10 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [submissionsList, setSubmissionsList] = useState([]);
   const [rawQuizText, setRawQuizText] = useState('');
   const [quizImportWarnings, setQuizImportWarnings] = useState([]);
+  const [wordQuizQuestions, setWordQuizQuestions] = useState(null); // DOCX OOXML đã nhận diện, có thể sửa từng câu.
+  const [wordQuizNotes, setWordQuizNotes] = useState([]);
+  const [wordQuizReport, setWordQuizReport] = useState(null);
+  const [wordPreviewIndex, setWordPreviewIndex] = useState(0);
   const [quizMixEnabled, setQuizMixEnabled] = useState(true);
   const [quizVariantCount, setQuizVariantCount] = useState(4);
   const [quizShuffleOptions, setQuizShuffleOptions] = useState(true);
@@ -2848,134 +2875,33 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     }
 
     const fileNameLower = file.name.toLowerCase();
-    setQuizImportWarnings([]); setQuizConfirmed(false);
+    setWordQuizQuestions(null);setWordQuizNotes([]);setWordQuizReport(null);
+    setQuizImportWarnings([]); setQuizConfirmed(false);setQuizBusy(true);
     try {
       // 1. Nếu là file LaTeX (.tex) hoặc .txt
       if (fileNameLower.endsWith('.tex') || fileNameLower.endsWith('.txt')) {
         const text = await file.text();
+        setWordQuizQuestions(null);setWordQuizNotes([]);setWordQuizReport(null);
         setRawQuizText(text);
         return;
       }
 
-      // 2. Nếu là file Word (.docx) chuẩn Azota
+      // 2. Word DOCX: đọc cấu trúc OOXML, không gom từng đoạn thành văn bản trơn.
       if (fileNameLower.endsWith('.docx')) {
-        if (!window.JSZip) {
-          return alert('Thư viện đọc Word đang khởi tạo, vui lòng bấm chọn lại sau 1 giây!');
-        }
-        const arrayBuffer = await file.arrayBuffer();
-        const zip = await window.JSZip.loadAsync(arrayBuffer);
-        const docXmlStr = await zip.file('word/document.xml')?.async('string');
-        const relsXmlStr = await zip.file('word/_rels/document.xml.rels')?.async('string');
-
-        if (!docXmlStr) return alert('Không đọc được cấu trúc file Word này!');
-
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(docXmlStr, 'application/xml');
-
-        // Bóc tách toàn bộ Ảnh (PNG/JPG) VÀ Công thức MathType (WMF/EMF) trực tiếp trong trình duyệt
-        const mediaMap = {};
-        const wordWarnings = [];
-        if (xmlDoc.getElementsByTagName('w:tbl').length > 0) {
-          wordWarnings.push('Word chứa bảng (có thể là bảng biến thiên/bảng đáp án). Bộ đọc hiện tại chưa bảo toàn bố cục bảng Word. Hãy chuyển bảng thành ảnh PNG rõ nét hoặc dùng LaTeX/SVG và kiểm tra lại.');
-        }
-        if (relsXmlStr) {
-          const relsDoc = parser.parseFromString(relsXmlStr, 'application/xml');
-          const relNodes = Array.from(relsDoc.getElementsByTagName('Relationship'));
-          for (const rel of relNodes) {
-            const rId = rel.getAttribute('Id');
-            const target = rel.getAttribute('Target') || '';
-            const cleanPath = target.startsWith('/') ? target.replace(/^\/+/, '') : 'word/' + target.replace(/^\.\.\//, '');
-            const zipEntry = zip.file(cleanPath);
-            if (!zipEntry) continue;
-
-            if (/\.(png|jpe?g|gif|webp)$/i.test(target)) {
-              const b64 = await zipEntry.async('base64');
-              const ext = target.split('.').pop().toLowerCase();
-              const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
-              mediaMap[rId] = { type: 'image', html: `<img src="data:${mime};base64,${b64}" class="max-h-[220px] w-auto inline-block align-middle my-1 rounded" />` };
-            } else if (/\.(wmf|emf)$/i.test(target)) {
-              const wmfBytes = await zipEntry.async('uint8array');
-              const decodedMath = decodeMathTypeFromWordBinary(wmfBytes, null);
-              if (decodedMath) {
-                mediaMap[rId] = { type: 'math', html: ` ${decodedMath} ` };
-              } else {
-                mediaMap[rId] = { type: 'unsupported', html: ' [CHUA_DOC_CONG_THUC] ' };
-                wordWarnings.push('Có công thức MathType WMF/EMF chưa đọc được; cần kiểm tra và chuyển thành LaTeX hoặc ảnh PNG.');
-              }
-            }
-          }
-        }
-
-        // Duyệt từng đoạn văn <w:p> trong Word
-        const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
-        const extractedLines = [];
-        let autoQuestionCounter = 1;
-
-        for (const p of paragraphs) {
-          const hasNumPr = p.getElementsByTagName('w:numPr').length > 0;
-          let pText = '';
-
-          const walkNodes = (node) => {
-            if (node.nodeName === 'w:r') {
-              const rPr = node.getElementsByTagName('w:rPr')[0];
-              const isUnderlined = rPr && rPr.getElementsByTagName('w:u').length > 0 && rPr.getElementsByTagName('w:u')[0].getAttribute('w:val') !== 'none';
-              const colorVal = rPr?.getElementsByTagName('w:color')[0]?.getAttribute('w:val') || '';
-              const isRed = /^(FF0000|C00000|EE0000|DC2626|EF4444)$/i.test(colorVal);
-
-              let runStr = '';
-              const tNodes = Array.from(node.getElementsByTagName('w:t'));
-              tNodes.forEach((t) => { runStr += t.textContent || ''; });
-
-              if ((isUnderlined || isRed) && /^\s*([A-D][\.\)]|[a-d]\))/.test(runStr)) {
-                runStr = '*' + runStr.trimStart();
-              }
-
-              const blips = Array.from(node.getElementsByTagName('a:blip'));
-              const vImagedata = Array.from(node.getElementsByTagName('v:imagedata'));
-              [...blips, ...vImagedata].forEach((imgNode) => {
-                const rId = imgNode.getAttribute('r:embed') || imgNode.getAttribute('r:id');
-                if (rId && mediaMap[rId]) {
-                  runStr += mediaMap[rId].html;
-                }
-              });
-
-              pText += runStr;
-              // OMML có thể nằm trong run: không được bỏ qua biểu thức toán học.
-              Array.from(node.childNodes || []).filter(n => n.nodeName === 'm:oMath' || n.nodeName === 'm:oMathPara').forEach(walkNodes);
-            } else if (node.nodeName === 'm:oMath' || node.nodeName === 'm:oMathPara') {
-              const mathTexts = Array.from(node.getElementsByTagName('m:t')).map((m) => m.textContent).join('');
-              if (mathTexts) pText += ` $${mathTexts}$ `;
-            } else if (node.childNodes && node.childNodes.length > 0) {
-              Array.from(node.childNodes).forEach(walkNodes);
-            }
-          };
-
-          walkNodes(p);
-          let cleanLine = pText.replace(/[ \t]+/g, ' ').trim();
-          if (!cleanLine) continue;
-
-          // Tự động khôi phục chữ "Câu 1.", "Câu 2." nếu file Word dùng đánh số tự động (Numbering)
-          if (
-         hasNumPr &&
-         !/^(Câu\s+\d+|Phần\s+[\dIVX]+|[IVX]+\.\s*Trắc\s*nghiệm|\*?[A-D][\.\)]|\*?[a-d]\)|Lời\s*giải|HD|Đáp\s*án|Bảng\s*đáp\s*án)/i.test(cleanLine)
-       ) {
-         cleanLine = `Câu ${autoQuestionCounter++}. ${cleanLine}`;
-       }
-
-          extractedLines.push(cleanLine);
-        }
-
-        if (!extractedLines.length) wordWarnings.push('Không tìm được nội dung văn bản trong Word.');
-        if (!/(?:^|\n)\s*\*[A-D][.)]/m.test(extractedLines.join('\n')) &&
-            !/\b(?:1|2|3)\s*[.: -]\s*[ABCD]\b/m.test(extractedLines.join('\n'))) {
-          wordWarnings.push('Chưa tìm được đáp án ABCD được đánh dấu hoặc bảng đáp án rõ ràng; bộ đọc có thể mặc định A. Hãy bổ sung đáp án trước khi giao.');
-        }
-        setQuizImportWarnings([...new Set(wordWarnings)]);
-        setRawQuizText(extractedLines.join('\n'));
+        if (!window.JSZip) throw new Error('JSZip chưa sẵn sàng; hãy tải lại trang.');
+        const parsed = await parseAzotaWordFile(await file.arrayBuffer(), window.JSZip, decodeMathTypeFromWordBinary);
+        setWordQuizQuestions(parsed.questions);
+        setWordQuizNotes(parsed.notes);
+        setWordQuizReport({fileName:file.name, summary:parsed.summary, mediaStats:parsed.mediaStats, paragraphs:parsed.paragraphs});
+        setWordPreviewIndex(0);
+        setQuizImportWarnings(parsed.errors);
+        setRawQuizText(`Đã nạp Word: ${file.name}. Dùng công cụ duyệt từng câu phía dưới để chỉnh sửa; KHÔNG sửa khung văn bản này khi đang dùng Word.`);
       }
+
     } catch (err) {
       alert('Lỗi đọc file đề thi: ' + err.message);
     } finally {
+      setQuizBusy(false);
       e.target.value = '';
     }
   };
@@ -3028,6 +2954,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       const data = await res.json();
       const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const cleaned = resultText.replace(/^```[a-z]*\n?/gim, '').replace(/```$/gm, '').trim();
+      setWordQuizQuestions(null);setWordQuizNotes([]);setWordQuizReport(null);
       setRawQuizText((prev) => (prev ? prev + '\n\n' + cleaned : cleaned));
     } catch (err) {
       alert('Lỗi AI đọc đề: ' + err.message);
@@ -3054,12 +2981,25 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     setQuizBusy(false);
   };
 
+  const updateWordQuiz = (index, update) => {
+    setWordQuizQuestions(old => !old ? old : old.map((q,i)=>{
+      if (i!==index) return q;
+      const result=update(q);
+      // Giữ cảnh báo cấu trúc tới khi giáo viên chủ động xác nhận đã sửa.
+      return result;
+    }));
+    setQuizConfirmed(false);
+  };
+  const importQuestions = wordQuizQuestions || parseAzotaOrTexToQuestions(rawQuizText);
+  const auditIssues = vyCheckQuizQuestions(importQuestions, quizImportWarnings);
+  const updateText = (i, key, value) => updateWordQuiz(i, q => ({...q,[key]:value}));
+
   const addExercise = async () => {
-    if (!newTitle.trim() || !rawQuizText.trim()) {
+    if (!newTitle.trim() || (!wordQuizQuestions?.length && !rawQuizText.trim())) {
       return alert('Vui lòng nhập Tên đề kiểm tra và tải file .tex / .docx (hoặc dán nội dung câu hỏi)!');
     }
 
-    const parsedQuestions = parseAzotaOrTexToQuestions(rawQuizText);
+    const parsedQuestions = wordQuizQuestions || parseAzotaOrTexToQuestions(rawQuizText);
     const quizIssues = vyCheckQuizQuestions(parsedQuestions, quizImportWarnings);
     if (quizIssues.length) return alert('Chưa thể giao đề khi còn lỗi cần kiểm tra:\n' + quizIssues.slice(0, 12).join('\n'));
     if (!quizConfirmed) return alert('Hãy kiểm tra bản xem trước, đáp án và đánh dấu xác nhận trước khi giao.');
@@ -3088,7 +3028,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
 
       setDriveContentCache((prev) => ({ ...prev, [driveFileId]: jsonString }));
       setNewTitle('');
-      setRawQuizText(''); setQuizConfirmed(false); setQuizImportWarnings([]);
+      setRawQuizText('');setWordQuizQuestions(null);setWordQuizNotes([]);setWordQuizReport(null); setQuizConfirmed(false); setQuizImportWarnings([]);
       setSelectedCategory(uploadCategory);
       fetchData();
       alert(`✅ Đã tạo đề "${newTitle.trim()}" (${parsedQuestions.length} câu hỏi chuẩn Azota) và lưu lên Google Drive!`);
@@ -3839,7 +3779,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       <div className="md:col-span-4">
                         <label className="flex items-center justify-center gap-2 w-full py-2.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-2 border-dashed border-indigo-400 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer transition">
                           <FileUp className="w-4 h-4 text-indigo-600 shrink-0" />
-                          <span>📄 Chọn File .TEX hoặc Word (.docx)</span>
+                          <span>{quizBusy ? '⏳ Đang phân tích đề...' : '📄 Chọn File .TEX hoặc Word (.docx)'}</span>
                           <input
                             type="file"
                             accept=".tex,.docx,.txt"
@@ -3887,7 +3827,8 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
 \\loigiai{Dựa vào bảng biến thiên, $y' > 0$ trên $(-\\infty; 0)$ và $(2; +\\infty)$.}
 \\end{ex}`}
                       value={rawQuizText}
-                      onChange={(e) => {setRawQuizText(e.target.value);setQuizConfirmed(false);setQuizImportWarnings([]);}}
+                      disabled={!!wordQuizQuestions}
+                      onChange={(e) => {setRawQuizText(e.target.value);setWordQuizQuestions(null);setWordQuizNotes([]);setWordQuizReport(null);setQuizConfirmed(false);setQuizImportWarnings([]);}}
                       className="w-full p-3 border rounded-xl text-xs sm:text-sm font-mono bg-slate-50 focus:bg-white"
                     />
 
@@ -3899,22 +3840,58 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                       </div>
                       <p className="text-slate-600">Các mã đề 101 trở đi; mỗi học sinh nhận mã cố định theo mã học sinh. Đảo thứ tự câu trong từng phần, giữ đúng đáp án sau khi đảo A/B/C/D.</p>
                     </div>
-                    {(() => { const q = parseAzotaOrTexToQuestions(rawQuizText); const issues = vyCheckQuizQuestions(q, quizImportWarnings); return (
-                      <div className="rounded-xl border bg-white p-3 text-xs space-y-2">
-                        <b>Kiểm tra đề trước khi giao: {q.length} câu • {issues.length} cảnh báo</b>
-                        {issues.length > 0 && <div className="bg-rose-50 text-rose-800 p-2 rounded">{issues.slice(0,12).map((x,i)=><p key={i}>• {x}</p>)}</div>}
-                        {!!q.length && <details><summary className="cursor-pointer font-bold text-indigo-700">Xem trước nội dung câu đầu và đáp án</summary>
-                          <div className="mt-2 space-y-2 max-h-80 overflow-auto">{q.slice(0,5).map((item,i)=><div key={i} className="border-b pb-2"><b>Câu {i+1} · {item.type}</b><MathHtmlBox content={item.question}/>{item.type === 'mcq' ? item.options.map((v,j)=><div key={j}>{'ABCD'[j]}. <MathHtmlBox content={v}/></div>) : item.type === 'tf' ? item.statements.map((v,j)=><div key={j}>{'abcd'[j]}) <MathHtmlBox content={v.text}/></div>) : null}<div className="text-emerald-700">Đáp án: {item.type === 'mcq' ? 'ABCD'[item.correct] : item.type === 'short' ? item.shortAnswer : item.statements.map(x=>x.isTrue?'Đ':'S').join('')}</div></div>)}</div>
-                        </details>}
-                        <label className="flex gap-2 items-start font-semibold"><input type="checkbox" checked={quizConfirmed} disabled={issues.length > 0 || !q.length} onChange={e=>setQuizConfirmed(e.target.checked)}/> Tôi đã kiểm tra công thức, hình vẽ, bảng biến thiên và đáp án so với file gốc.</label>
+                    <div className="rounded-xl border bg-white p-3 text-xs space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <b>Kiểm tra đề trước khi giao: {importQuestions.length} câu • {auditIssues.length} lỗi cần xử lý</b>
+                        {wordQuizReport && <span className="font-bold text-indigo-700">Word: {wordQuizReport.summary.mcq} ABCD · {wordQuizReport.summary.tf} Đ/S · {wordQuizReport.summary.short} câu ngắn</span>}
                       </div>
-                    );})()}
+                      {wordQuizReport && <p className="text-slate-600">Nguồn: {wordQuizReport.fileName} · MathType WMF: {wordQuizReport.mediaStats.mathTypeWmf} · Hình thường: {wordQuizReport.mediaStats.bitmap} · Bảng Word: {wordQuizReport.mediaStats.tables}</p>}
+                      {auditIssues.length > 0 && <div className="bg-rose-50 text-rose-800 p-2 rounded max-h-40 overflow-auto">{auditIssues.map((x,i)=><p key={i}>• {x}</p>)}</div>}
+                      {wordQuizNotes.length > 0 && <div className="rounded bg-amber-50 p-2 text-amber-900"><b>Lưu ý chất lượng hiển thị (cần đối chiếu Word gốc):</b>{wordQuizNotes.slice(0,9).map((s,i)=><p key={i}>• {s}</p>)}</div>}
+                      {wordQuizQuestions ? <>
+                        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50 p-2">
+                          <b>Kiểm tra từng câu (không chỉ 5 câu đầu):</b>
+                          <select className="flex-1 min-w-40 rounded border bg-white px-2 py-1" value={Math.min(wordPreviewIndex,wordQuizQuestions.length-1)} onChange={e=>setWordPreviewIndex(Number(e.target.value))}>
+                            {wordQuizQuestions.map((q,i)=><option key={i} value={i}>Câu {i+1} · {q.type==='mcq'?'ABCD':q.type==='tf'?'Đúng/Sai':'Trả lời ngắn'} {q.parseWarning?'— CẦN SỬA':''}</option>)}
+                          </select>
+                          <button type="button" className="rounded border bg-white px-2 py-1" disabled={wordPreviewIndex===0} onClick={()=>setWordPreviewIndex(i=>Math.max(0,i-1))}>◀ Trước</button>
+                          <button type="button" className="rounded border bg-white px-2 py-1" disabled={wordPreviewIndex>=wordQuizQuestions.length-1} onClick={()=>setWordPreviewIndex(i=>Math.min(wordQuizQuestions.length-1,i+1))}>Sau ▶</button>
+                        </div>
+                        {wordQuizQuestions[wordPreviewIndex] && (()=>{
+                          const q=wordQuizQuestions[wordPreviewIndex];const idx=wordPreviewIndex;
+                          return <div className="space-y-2 rounded-lg border bg-slate-50 p-3">
+                            <b>Câu {idx+1} — {q.type==='mcq'?'ABCD':q.type==='tf'?'Đúng/Sai':'Trả lời ngắn'}</b>
+                            {!!q.parseWarning && <div className="rounded bg-rose-50 p-2 text-red-700">⚠ {q.parseWarning}<div className="mt-2"><button type="button" className="rounded border border-red-300 bg-white px-2 py-1 font-bold" onClick={()=>{if(window.confirm('Chỉ xác nhận sau khi đã sửa và so sánh câu này với Word gốc. Đánh dấu đã xử lý lỗi cấu trúc?'))updateWordQuiz(idx,r=>({...r,parseWarning:''}));}}>Tôi đã sửa và đối chiếu câu này</button></div></div>}
+                            <MathHtmlBox content={q.question} className="text-sm leading-relaxed"/>
+                            <details><summary className="cursor-pointer text-indigo-700">Sửa nội dung câu hỏi (HTML / LaTeX)</summary><textarea className="mt-1 w-full rounded border p-2 font-mono" rows={4} value={q.question} onChange={e=>updateText(idx,'question',e.target.value)}/></details>
+                            {q.type==='mcq' && <>
+                              {q.options.map((v,j)=><div key={j} className="rounded border bg-white p-2"><b>{'ABCD'[j]}.</b><MathHtmlBox content={v} className="text-sm"/><details><summary className="cursor-pointer text-indigo-700">Sửa phương án {'ABCD'[j]}</summary><textarea className="w-full rounded border p-1 font-mono" rows={3} value={v} onChange={e=>updateWordQuiz(idx,r=>({...r,options:r.options.map((x,k)=>k===j?e.target.value:x)}))}/></details></div>)}
+                              <label className="font-bold">Đáp án đúng:
+                                <select className="ml-2 rounded border bg-white px-2 py-1" value={q.correct??''} onChange={e=>updateWordQuiz(idx,r=>({...r,correct:e.target.value===''?null:Number(e.target.value)}))}>
+                                  <option value="">Chưa xác định</option>{'ABCD'.split('').map((letter,j)=><option key={letter} value={j}>{letter}</option>)}
+                                </select>
+                              </label>
+                            </>}
+                            {q.type==='tf' && q.statements.map((st,j)=><div key={j} className="rounded border bg-white p-2"><b>{'abcd'[j]})</b> <MathHtmlBox content={st.text} className="text-sm"/>
+                              <div className="mt-1 flex flex-wrap items-center gap-2"><select className="rounded border px-2 py-1" value={st.isTrue===null?'':st.isTrue?'T':'F'} onChange={e=>updateWordQuiz(idx,r=>({...r,statements:r.statements.map((v,k)=>k===j?{...v,isTrue:e.target.value==='T'?true:e.target.value==='F'?false:null}:v)}))}>
+                                <option value="">Chưa rõ</option><option value="T">Đúng</option><option value="F">Sai</option></select>
+                                <details className="flex-1"><summary className="cursor-pointer text-indigo-700">Sửa mệnh đề</summary><textarea rows={2} className="w-full rounded border p-1 font-mono" value={st.text} onChange={e=>updateWordQuiz(idx,r=>({...r,statements:r.statements.map((v,k)=>k===j?{...v,text:e.target.value}:v)}))}/></details>
+                              </div>
+                            </div>)}
+                            {q.type==='short' && <label className="flex items-center gap-2 font-bold">Đáp án ngắn:<input className="rounded border bg-white px-2 py-1" value={q.shortAnswer} onChange={e=>updateText(idx,'shortAnswer',e.target.value)}/></label>}
+                          </div>;
+                        })()}
+                      </> : (!!importQuestions.length && <details><summary className="cursor-pointer font-bold text-indigo-700">Xem trước câu hỏi (LaTeX/văn bản)</summary><div className="mt-2 max-h-80 space-y-2 overflow-auto">{importQuestions.slice(0,5).map((q,i)=><div key={i}><b>Câu {i+1}:</b><MathHtmlBox content={q.question}/></div>)}</div></details>)}
+                      <label className="flex gap-2 items-start font-semibold"><input type="checkbox" checked={quizConfirmed} disabled={auditIssues.length>0 || !importQuestions.length} onChange={e=>setQuizConfirmed(e.target.checked)}/>
+                        Tôi đã duyệt lần lượt đủ {importQuestions.length} câu, đối chiếu biểu thức MathType/SVG, hình, bảng và đáp án với Word gốc. Không giao đề nếu còn mục bị sai.
+                      </label>
+                    </div>
                     {/* Xem trước nhanh số câu đã nhận diện */}
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <span className="text-xs font-bold text-slate-600">
                         🔍 Đã nhận diện tự động:{' '}
                         <strong className="text-indigo-700">
-                          {parseAzotaOrTexToQuestions(rawQuizText).length} câu hỏi
+                          {importQuestions.length} câu hỏi
                         </strong>{' '}
                         (Hỗ trợ công thức LaTeX, Bảng biến thiên <code>\tkzTab</code>, Đồ thị SVG, Trắc nghiệm, Đúng/Sai, Trả lời ngắn)
                       </span>
