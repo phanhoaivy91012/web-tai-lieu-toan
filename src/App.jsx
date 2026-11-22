@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import VzotaPanel from './VzotaPanel';
 import { parseAzotaWordFile } from './azotaWordParser';
+import DOMPurify from 'dompurify';
+import './examMath.css';
+import ExamGuard from './ExamGuard';
+import ExamTeacherMonitor from './ExamTeacherMonitor';
 import { 
   BookOpen, FileText, CheckSquare, Info, Lock, LogOut, 
   Eye, EyeOff, Key, Plus, Trash2, Upload, Award, Users, 
@@ -1489,6 +1493,10 @@ function parseAzotaOrTexToQuestions(rawInput) {
 // 6. Component hiển thị nội dung Toán học chuẩn KaTeX + HTML (Bảng biến thiên, SVG, Ảnh)
 function MathHtmlBox({ content, className = '' }) {
   const boxRef = React.useRef(null);
+  const safeHtml = React.useMemo(() => DOMPurify.sanitize(String(content || ''), {
+    USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
+    ADD_ATTR: ['class', 'viewBox'],
+  }), [content]);
 
   useEffect(() => {
     if (boxRef.current && window.renderMathInElement) {
@@ -1509,8 +1517,8 @@ function MathHtmlBox({ content, className = '' }) {
   return (
     <div
       ref={boxRef}
-      className={className}
-      dangerouslySetInnerHTML={{ __html: content || '' }}
+      className={`vy-math-content ${className}`}
+      dangerouslySetInnerHTML={{ __html: safeHtml }}
     />
   );
 }
@@ -1548,6 +1556,31 @@ function vyMakeStudentVariant(original, settings, studentCode) {
   });
   return { questions, examCode: code };
 }
+// Mỗi mã đề được tạo trước, đáp án CHỈ lưu trong Supabase kín.
+function vyCreateSecureVariants(questions, settings) {
+  const count = settings.mix ? Math.max(1, Math.min(30, Number(settings.variantCount) || 1)) : 1;
+  return Array.from({length: count}, (_, ix) => {
+    const code = settings.mix ? String(101 + ix).padStart(3, '0') : 'GỐC';
+    const arranged = ['mcq','tf','short'].flatMap(type => {
+      const group = questions.filter(q => (q.type || 'mcq') === type);
+      const reordered = settings.mix ? vyQuizShuffle(group, vyQuizHash(`${settings.seed}:${code}:${type}:order`)) : group;
+      return reordered.map(q => {
+        if (type !== 'mcq' || !settings.mix || !settings.shuffleOptions) return {...q};
+        const positions = vyQuizShuffle(q.options.map((_,i)=>i), vyQuizHash(`${settings.seed}:${code}:${q.id}:${q.question}:abcd`));
+        return {...q, options:positions.map(i=>q.options[i]), correct:positions.indexOf(Number(q.correct))};
+      });
+    });
+    return {code, questions:arranged};
+  });
+}
+function vyHideAnswers(questions) {
+  return questions.map(q => {
+    const {correct,shortAnswer,solution,parseWarning,...publicQ} = q;
+    if (publicQ.type === 'tf') publicQ.statements = (publicQ.statements || []).map(({isTrue,correct,...s}) => s);
+    return publicQ;
+  });
+}
+
 function vyCheckQuizQuestions(questions, importWarnings = []) {
   const issues = [...importWarnings];
   if (!questions.length) issues.push('Không nhận diện được câu hỏi nào.');
@@ -1664,7 +1697,27 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [quizExamCode, setQuizExamCode] = useState('');
   const [quizBusy, setQuizBusy] = useState(false);
   const [quizFolderNotice, setQuizFolderNotice] = useState('');
+  const [assignedClasses, setAssignedClasses] = useState([]);
+  const [examDuration, setExamDuration] = useState(80);
+  const [examSession, setExamSession] = useState(null);
+  const [monitorExercise, setMonitorExercise] = useState(null);
+  const [securityNotice, setSecurityNotice] = useState('');
 
+
+  // Tự lưu đáp án; khi có mạng lại sẽ thử gửi lại bộ trả lời gần nhất.
+  useEffect(() => {
+    if (!examSession?.token || submittedScore || isTeacher) return;
+    const save = async () => {
+      const {error} = await supabase.rpc('exam_save_answers',{
+        p_token:examSession.token,p_answers:userAnswers
+      });
+      if(error) setSecurityNotice('Cảnh báo: câu trả lời mới nhất chưa lưu được lên máy chủ. Kiểm tra kết nối mạng.');
+      else setSecurityNotice(prev=>prev.startsWith('Cảnh báo: câu trả lời')?'':prev);
+    };
+    const timer = setTimeout(save,700);
+    window.addEventListener('online',save);
+    return ()=>{clearTimeout(timer);window.removeEventListener('online',save);};
+  },[examSession,userAnswers,submittedScore,isTeacher]);
 
   // Kiểm tra phiên Giáo viên
   useEffect(() => {
@@ -1729,7 +1782,23 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       .eq('grade', effectiveGrade)
       .eq('category', effectiveCategory)
       .order('created_at', { ascending: false });
-    setExercises(isTeacher ? (exData || []) : (exData || []).filter(e => e.is_active));
+    if (isTeacher) {
+      const {data:papers} = await supabase.from('exam_papers').select('exercise_id,assigned_classes,duration_minutes');
+      const metas = Object.fromEntries((papers||[]).map(p=>[p.exercise_id,p]));
+      setExercises((exData||[]).map(ex=>({...ex,...(metas[String(ex.id)]||{})})));
+    } else {
+      let allowedIds = [];
+      try {
+        if (currentStudent?.student_code && currentStudent?.password) {
+          const response = await supabase.rpc('exam_list_for_student', {
+            p_code: currentStudent.student_code, p_password: currentStudent.password
+          });
+          if (!response.error) allowedIds = response.data || [];
+        }
+      } catch (err) { console.warn('Không tải được phân lớp đề kiểm tra:',err); }
+      setExercises((exData || []).filter(e => e.is_active &&
+        (!e.secure_exam || allowedIds.includes(String(e.id)))));
+    }
 
     // 4. Tải Thông tin GV
     const { data: infoData } = await supabase
@@ -3007,37 +3076,71 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       return alert('Không nhận diện được câu hỏi nào! Hãy kiểm tra lại định dạng Câu 1... hoặc \\begin{ex}...');
     }
 
+    const validClasses = new Set(studentsList.filter(st=>Number(st.grade)===Number(selectedGrade)
+      && st.category===uploadCategory).map(st=>st.class_name?.trim()).filter(Boolean));
+    const classes = assignedClasses.filter(cls=>validClasses.has(cls));
+    if (!classes.length) return alert('Hãy chọn ít nhất một lớp hợp lệ trong đúng khối và phân hệ.');
+    const settings = {mix:quizMixEnabled, variantCount:Number(quizVariantCount), shuffleOptions:quizShuffleOptions,
+      startCode:101, seed:2026};
+    const variants = vyCreateSecureVariants(parsedQuestions,settings);
     try {
-      const jsonString = JSON.stringify({ version: 2, questions: parsedQuestions, settings: { mix: quizMixEnabled, variantCount: Number(quizVariantCount), shuffleOptions: quizShuffleOptions, startCode: 101, seed: 2026 } });
+      // File Drive chỉ giữ đề KHÔNG CÓ đáp án. Đáp án/lời giải vào exam_papers với RLS admin.
+      const publicBank = JSON.stringify({version:3,secure:true,
+        questions:vyHideAnswers(variants[0].questions),settings});
       const driveFileId = await uploadToGoogleDrive(
         `[BAI-TAP-K${selectedGrade}] ${newTitle.trim()}.json`,
-        jsonString,
-        'application/json', false, 'create_exercise'
-      );
-
-      const { error } = await supabase.from('exercises').insert([{
-        title: newTitle.trim(),
-        grade: selectedGrade,
-        category: uploadCategory,
-        drive_file_id: driveFileId,
-        questions_json: [],
-        is_active: true
-      }]);
-
-      if (error) throw error;
-
-      setDriveContentCache((prev) => ({ ...prev, [driveFileId]: jsonString }));
-      setNewTitle('');
-      setRawQuizText('');setWordQuizQuestions(null);setWordQuizNotes([]);setWordQuizReport(null); setQuizConfirmed(false); setQuizImportWarnings([]);
+        publicBank,'application/json',false,'create_exercise');
+      const {data:examRow,error:rowError} = await supabase.from('exercises').insert([{
+        title:newTitle.trim(),grade:selectedGrade,category:uploadCategory,
+        drive_file_id:driveFileId,questions_json:[],is_active:false,secure_exam:true
+      }]).select('id').single();
+      if(rowError) throw rowError;
+      const {error:publishError} = await supabase.rpc('exam_publish',{
+        p_exercise_id:String(examRow.id),p_title:newTitle.trim(),p_grade:selectedGrade,
+        p_category:uploadCategory,p_classes:classes,p_variants:variants,p_minutes:Number(examDuration)
+      });
+      if(publishError) throw publishError;
+      const {error:activateError} = await supabase.from('exercises').update({is_active:true}).eq('id',examRow.id);
+      if(activateError) throw activateError;
+      setDriveContentCache(prev=>({...prev,[driveFileId]:publicBank}));
+      setNewTitle('');setRawQuizText('');setWordQuizQuestions(null);
+      setWordQuizNotes([]);setWordQuizReport(null);setQuizConfirmed(false);setQuizImportWarnings([]);
       setSelectedCategory(uploadCategory);
-      fetchData();
-      alert(`✅ Đã tạo đề "${newTitle.trim()}" (${parsedQuestions.length} câu hỏi chuẩn Azota) và lưu lên Google Drive!`);
+      await fetchData();
+      alert(`Đã giao đề cho ${classes.join(', ')} (${variants.length} mã đề). Đáp án lưu riêng trên Supabase.`);
     } catch (err) {
       alert('Lỗi lưu bài tập lên Google Drive: ' + err.message);
     }
   };
 
   const openExercise = async (ex) => {
+    setSecurityNotice('');
+    if (ex.secure_exam) {
+      if (isTeacher) {
+        const {data,error} = await supabase.from('exam_papers').select('variants').eq('exercise_id',String(ex.id)).single();
+        if(error || !data) return alert('Không mở được đề của giáo viên: '+(error?.message||'Thiếu dữ liệu'));
+        setActiveExercise({...ex,questions_json:data.variants?.[0]?.questions||[]});
+        setQuizExamCode(data.variants?.[0]?.code||'GỐC');
+        setUserAnswers({});setSubmittedScore(null);setExamSession(null);
+        const {data:submissions} = await supabase.from('submissions').select('*').eq('exercise_id',ex.id).order('created_at',{ascending:false});
+        setSubmissionsList(submissions||[]);
+        return;
+      }
+      try {
+        const {data,error} = await supabase.rpc('exam_begin',{
+          p_exercise_id:String(ex.id),p_code:currentStudent.student_code,
+          p_password:currentStudent.password
+        });
+        if (error) throw error;
+        setActiveExercise({...ex,questions_json:data.questions||[]});
+        setQuizExamCode(data.examCode||'GỐC');
+        setUserAnswers(data.answers||{});
+        setSubmittedScore(data.submitted?{score:data.score,correct:'—',total:data.questions?.length||0}:null);
+        setExamSession({token:data.attemptToken,deadlineAt:data.deadlineAt});
+      } catch(err) {alert('Không thể vào bài kiểm tra: '+err.message);}
+      return;
+    }
+    setExamSession(null);
     let loadedExercise = { ...ex };
     if ((!ex.questions_json || ex.questions_json.length === 0) && ex.drive_file_id) {
       const jsonStr = await fetchFromGoogleDrive(ex.drive_file_id);
@@ -3075,6 +3178,16 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   const submitExercise = async () => {
     const questions = activeExercise.questions_json || [];
     if (questions.length === 0) return;
+    if (!isTeacher && activeExercise.secure_exam) {
+      if (!examSession?.token) return alert('Phiên làm bài chưa được xác thực.');
+      const {data,error} = await supabase.rpc('exam_submit',{
+        p_token:examSession.token,p_answers:userAnswers
+      });
+      if(error) return alert('Chưa thể nộp bài: '+error.message);
+      setSubmittedScore({score:data.score,correct:data.correct,total:data.total});
+      setSecurityNotice('Bài đã nộp và chấm trên máy chủ; nhật ký được lưu cho giáo viên.');
+      return;
+    }
 
     const sName = isTeacher
       ? 'Giáo viên thử bài'
@@ -3805,6 +3918,26 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       </div>
                     </div>
 
+                    <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-3 space-y-2">
+                      <h4 className="font-extrabold text-blue-900 text-sm">Giao đề theo lớp (bắt buộc)</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {[...new Set(studentsList.filter(s=>Number(s.grade)===Number(selectedGrade) && s.category===uploadCategory)
+                          .map(s=>s.class_name?.trim()).filter(Boolean))].sort().map(cls=>(
+                          <label key={cls} className="flex items-center gap-2 bg-white border px-3 py-2 rounded-lg text-xs font-bold">
+                            <input type="checkbox" checked={assignedClasses.includes(cls)}
+                              onChange={e=>{setAssignedClasses(prev=>e.target.checked?[...prev,cls]:prev.filter(x=>x!==cls));setQuizConfirmed(false);}}/>
+                            {cls}
+                          </label>
+                        ))}
+                      </div>
+                      <label className="block text-xs font-bold">Thời lượng làm bài (phút, 5–300)
+                        <input type="number" min="5" max="300" value={examDuration}
+                          onChange={e=>setExamDuration(Number(e.target.value)||80)}
+                          className="block mt-1 w-28 rounded border px-2 py-1"/>
+                      </label>
+                      <p className="text-xs text-slate-700">Lớp chưa có trong danh sách: tạo tài khoản học sinh của lớp trước. Đề mới chấm ở Supabase, không gửi đáp án xuống trình duyệt.</p>
+                    </div>
+
                     <textarea
                       rows={7}
                       placeholder={
@@ -3932,8 +4065,11 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 mt-1">
-                          Giao diện chuẩn Azota • Chấm điểm tự động
+                          Giao diện chuẩn Azota • {ex.secure_exam ? 'Chấm trên Supabase' : 'Chấm theo chế độ cũ'}
                         </p>
+                        {isTeacher && ex.secure_exam && <p className="text-xs text-blue-800 mt-1 font-bold">
+                          Lớp: {(ex.assigned_classes||[]).join(', ') || 'Đang tải'} · {ex.duration_minutes||80} phút
+                        </p>}
                       </div>
 
                       <div className="flex items-center justify-between pt-3 border-t gap-2">
@@ -3944,6 +4080,12 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                           {isTeacher ? '👁️ Xem Đề & Bảng Điểm' : '✏️ Vào Làm Bài Ngay'}
                         </button>
 
+                        {isTeacher && ex.secure_exam && (
+                          <button onClick={()=>setMonitorExercise(ex)}
+                            className="rounded-lg bg-amber-100 text-amber-900 px-2 py-2 text-xs font-bold">
+                            Giám sát
+                          </button>
+                        )}
                         {isTeacher && (
                           <div className="flex items-center gap-1">
                             <button
@@ -3966,10 +4108,17 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                     </div>
                   ))}
                 </div>
+                {isTeacher && monitorExercise && <ExamTeacherMonitor supabase={supabase} exercise={monitorExercise}
+                  onClose={()=>setMonitorExercise(null)} />}
               </>
             ) : (
               /* ==================== GIAO DIỆN LÀM BÀI TRỰC TUYẾN CHUẨN AZOTA ==================== */
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              <div className="space-y-3">
+                {!isTeacher && activeExercise.secure_exam && examSession && !submittedScore &&
+                  <ExamGuard supabase={supabase} token={examSession.token} deadlineAt={examSession.deadlineAt}
+                    onTimeUp={()=>submitExercise()} onViolation={()=>{}} />}
+                {securityNotice && <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{securityNotice}</p>}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                 {/* Cột trái (8 phần): Nội dung Đề thi hiển thị Toán KaTeX, Bảng biến thiên, Đồ thị */}
                 <div className="lg:col-span-8 space-y-4">
                   <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border flex flex-wrap items-center justify-between gap-2">
@@ -3984,7 +4133,12 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                     </div>
 
                     <button
-                      onClick={() => setActiveExercise(null)}
+                      onClick={() => {
+                        if (!isTeacher && activeExercise.secure_exam && examSession?.token && !submittedScore) {
+                          supabase.rpc('exam_log_event', {p_token:examSession.token,p_type:'PAGE_EXIT',p_detail:{}});
+                        }
+                        setActiveExercise(null);
+                      }}
                       className="text-xs font-extrabold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-xl transition"
                     >
                       ← Quay lại danh sách đề
@@ -4044,7 +4198,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                                 let btnStyle = 'bg-slate-50/80 hover:bg-blue-50/60 border-slate-200 text-slate-800';
                                 let circleStyle = 'bg-white border border-slate-300 text-slate-700';
 
-                                if (submittedScore) {
+                                if (submittedScore && (!activeExercise.secure_exam || isTeacher)) {
                                   if (isCorrect) {
                                     btnStyle = 'bg-emerald-50 border-2 border-emerald-500 text-emerald-950 font-bold';
                                     circleStyle = 'bg-emerald-600 text-white';
@@ -4155,7 +4309,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                                 placeholder="VD: 12,5 hoặc -3"
                                 className="px-4 py-2 border-2 border-indigo-300 focus:border-blue-600 rounded-xl text-sm sm:text-base font-extrabold text-indigo-900 w-48 outline-none bg-white"
                               />
-                              {submittedScore && (
+                              {submittedScore && (!activeExercise.secure_exam || isTeacher) && (
                                 <span className="text-xs sm:text-sm font-extrabold text-emerald-700 bg-emerald-100 px-3 py-1 rounded-lg">
                                   Đáp án chuẩn: {q.shortAnswer}
                                 </span>
@@ -4238,13 +4392,14 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                       >
                         ✓ NỘP BÀI & CHẤM ĐIỂM NGAY
                       </button>
+                    ) : activeExercise.secure_exam && !isTeacher ? (
+                      <p className="rounded-lg bg-green-50 p-3 text-center font-extrabold text-green-800 text-xs">
+                        Đã nộp bài. Mỗi học sinh chỉ có một lượt làm đề này.
+                      </p>
                     ) : (
                       <button
-                        onClick={() => {
-                          setUserAnswers({});
-                          setSubmittedScore(null);
-                        }}
-                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-3 rounded-xl shadow text-xs sm:text-sm transition"
+                        onClick={() => {setUserAnswers({});setSubmittedScore(null);}}
+                        className="w-full bg-indigo-600 hover:bg-blue-700 text-white font-extrabold py-3 rounded-xl shadow text-xs sm:text-sm transition"
                       >
                         🔄 Làm lại đề này
                       </button>
@@ -4280,6 +4435,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                     </div>
                   )}
                 </div>
+              </div>
               </div>
             )}
           </div>
