@@ -61,6 +61,64 @@ function omml(node, alerts) {
   return `<mrow>${nest()}</mrow>`;
 }
 
+// Chỉ chuyển cấu trúc OMML có ngữ nghĩa rõ sang LaTeX/KaTeX.
+// Cấu trúc chưa hiểu trả về null để giữ MathML, tránh sinh công thức sai.
+function ommlToLatex(node) {
+  const n=local(node);
+  const mathChildren = el => elementKids(el).filter(c => c.namespaceURI===MATH &&
+    !['rPr','ctrlPr','fPr','sSupPr','sSubPr','sSubSupPr','radPr','dPr','accPr','naryPr'].includes(local(c)));
+  const combine = el => {
+    let result='';
+    for(const child of mathChildren(el)) {
+      const converted=ommlToLatex(child);
+      if(converted===null)return null;
+      result+=converted;
+    }
+    return result;
+  };
+  const named = tag => {
+    const child=first(node,tag);
+    return child?combine(child):'';
+  };
+  const two = (a,b) => {
+    const x=named(a),y=named(b);
+    return x===null||y===null?null:[x,y];
+  };
+  if(['oMath','oMathPara','e','num','den','sup','sub','deg','box','groupChr'].includes(n))return combine(node);
+  if(n==='r')return txt(node).replace(/([%&#_{}])/g,'\\$1');
+  if(n==='t')return String(node.textContent||'').replace(/([%&#_{}])/g,'\\$1');
+  if(n==='f') {const p=two('num','den');return p?`\\frac{${p[0]}}{${p[1]}}`:null;}
+  if(n==='sSup') {const p=two('e','sup');return p?`{${p[0]}}^{${p[1]}}`:null;}
+  if(n==='sSub') {const p=two('e','sub');return p?`{${p[0]}}_{${p[1]}}`:null;}
+  if(n==='sSubSup') {
+    const base=named('e'),sub=named('sub'),sup=named('sup');
+    return [base,sub,sup].some(x=>x===null)?null:`{${base}}_{${sub}}^{${sup}}`;
+  }
+  if(n==='rad') {
+    const body=named('e'),degree=named('deg');
+    if(body===null||degree===null)return null;
+    return degree?`\\sqrt[${degree}]{${body}}`:`\\sqrt{${body}}`;
+  }
+  if(n==='d') {
+    const props=first(node,'dPr');
+    const beg=first(props,'begChr'),end=first(props,'endChr');
+    const opening=beg?attr(beg,'val',MATH):'(';
+    const closing=end?attr(end,'val',MATH):')';
+    const body=named('e');
+    if(body===null || !['(','[','|','{'].includes(opening) || ![')',']','|','}'].includes(closing))return null;
+    const left=opening==='{'?'\\{':opening,right=closing==='}'?'\\}':closing;
+    return `\\left${left}${body}\\right${right}`;
+  }
+  if(n==='acc') {
+    const props=first(node,'accPr'),glyph=attr(first(props,'chr'),'val',MATH)||'̂';
+    const base=named('e');if(base===null)return null;
+    const symbol=glyph==='→'||glyph==='⃗'?'vec':glyph==='̅'?'overline':glyph==='̂'?'hat':null;
+    return symbol?`\\${symbol}{${base}}`:null;
+  }
+  // Dạng ma trận, giới hạn và các cấu trúc lạ sẽ dùng MathML gốc, KHÔNG đoán.
+  return null;
+}
+
 // Match a *sequence* of A/B/C/D labels rather than a random "A." in prose.
 const mcqLabels = text => {
   const re=/(^|[^\p{L}\p{N}_])([*]?[A-D][.)])(?=[\s\u27e6\u27e7$<\\]|[^\p{L}]|$)/gu;
@@ -222,9 +280,17 @@ export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
       if(ns===WORD && n==='tab')return append(' \t ',marked);
       if(ns===WORD && ['br','cr'].includes(n))return append('\n',marked);
       if(ns===MATH && ['oMath','oMathPara'].includes(n)) {
-        mediaStats.omml++;const warnings=[];const s=omml(node,warnings);
-        notes.push(...warnings);
-        append(await addMedia(s,'WMATH'),false);return;
+        mediaStats.omml++;
+        const tex=ommlToLatex(node);
+        if(tex !== null && tex.trim()) {
+          const formatted=local(node)==='oMathPara'?`\[${tex}\]`:`\(${tex}\)`;
+          append(await addMedia(formatted,'WMATH'),false);
+        } else {
+          const warnings=[];const html=omml(node,warnings);
+          notes.push('OMML phức tạp: giữ MathML thay vì đoán LaTeX, hãy đối chiếu biểu thức gốc.',...warnings);
+          append(await addMedia(html,'WMATH'),false);
+        }
+        return;
       }
       if(n==='drawing'||n==='pict'||n==='object'){
         // Image may appear under multiple wrappers; collect unique relationship IDs.
