@@ -1,0 +1,8 @@
+/* Hiển thị Toán học rõ nét và co giãn; không ép ảnh MathType bitmap thành SVG giả. */
+.vy-math-content { overflow-wrap: anywhere; line-height: 1.8; }
+.vy-math-content .katex { font-size: 1.1em; }
+.vy-math-content .katex-display { overflow-x: auto; overflow-y: hidden; max-width: 100%; padding-block: 0.35rem; }
+.vy-math-content img, .vy-math-content svg { max-width: 100%; height: auto; vertical-align: middle; }
+.vy-math-content svg[viewBox] { overflow: visible; }
+.vy-math-content table { max-width: 100%; display: block; overflow-x: auto; border-collapse: collapse; }
+.vy-math-content table td, .vy-math-content table th { border: 1px solid #cbd5e1; padding: 5px; }
