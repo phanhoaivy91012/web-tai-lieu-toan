@@ -1576,10 +1576,144 @@ function vyCreateSecureVariants(questions, settings) {
   });
 }
 function vyHideAnswers(questions) {
+  // Chỉ sao chép các trường được phép. Không chép nguyên đối tượng nguồn,
+  // vì parser/AI có thể thêm các trường bí mật như answerSource, solution,...
   return questions.map(q => {
-    const {correct,shortAnswer,solution,parseWarning,answerSource,...publicQ} = q;
-    if (publicQ.type === 'tf') publicQ.statements = (publicQ.statements || []).map(({isTrue,correct,answerSource,...s}) => s);
+    const publicQ = { id: q.id, type: q.type || 'mcq', question: String(q.question || '') };
+    if (publicQ.type === 'mcq') publicQ.options = (q.options || []).map(o => String(o ?? ''));
+    if (publicQ.type === 'tf') publicQ.statements = (q.statements || []).map(st => ({
+      label: String(st.label || ''), text: String(st.text || '')
+    }));
     return publicQ;
+  });
+}
+
+// EXAM DRIVE LITE v1: một ngân hàng câu hỏi mã hóa, KHÔNG chứa đáp án.
+// Chỉ số đáp án rất nhỏ được giữ trong exam_papers (RLS + chấm ở SQL).
+function vyCompactSecureVariants(variants) {
+  return variants.map(v => ({ code: v.code, questions: v.questions.map(q => {
+    if (q.type === 'tf') return {type:'tf', statements:(q.statements || []).map(st => ({isTrue:st.isTrue === true}))};
+    if (q.type === 'short') return {type:'short',shortAnswer:String(q.shortAnswer ?? '')};
+    return {type:'mcq',correct:Number(q.correct)};
+  }) }));
+}
+function vyBytesToBase64(bytes) {
+  let binary = '';
+  for (let i=0;i<bytes.length;i+=16384) binary += String.fromCharCode(...bytes.subarray(i,i+16384));
+  return btoa(binary);
+}
+function vyBase64ToBytes(value) {
+  const binary=atob(String(value||''));const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+  return bytes;
+}
+async function vyEncryptExamBank(questions, settings, legacyVariants = null) {
+  if (!globalThis.crypto?.subtle) throw new Error('Trình duyệt chưa hỗ trợ mã hóa an toàn. Hãy dùng Chrome qua HTTPS.');
+  const bank=legacyVariants ? {version:4,variants:legacyVariants.map(v=>({code:v.code,questions:vyHideAnswers(v.questions)}))} : {version:4,questions:vyHideAnswers(questions),settings};
+  let bytes=new TextEncoder().encode(JSON.stringify(bank));
+  let compression='none';
+  if (typeof CompressionStream !== 'undefined') {
+    const stream=new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+    bytes=new Uint8Array(await new Response(stream).arrayBuffer());compression='gzip';
+  }
+  const key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const cipher=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,bytes));
+  const keyRaw=new Uint8Array(await crypto.subtle.exportKey('raw',key));
+  // Ghi chú/lời giải của giáo viên được mã hóa bằng khóa KHÁC;
+  // khóa này không bao giờ trả về từ exam_begin cho học sinh.
+  const teacherNotes=legacyVariants
+    ? {variants:legacyVariants.map(v=>({code:v.code,notes:v.questions.map(q=>({
+        solution:q.solution||'',parseWarning:q.parseWarning||''}))}))}
+    : {notes:questions.map(q=>({id:q.id,type:q.type,
+        solution:q.solution||'',parseWarning:q.parseWarning||''}))};
+  const noteKey=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
+  const noteIv=crypto.getRandomValues(new Uint8Array(12));
+  const noteBytes=new TextEncoder().encode(JSON.stringify(teacherNotes));
+  const noteCipher=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv:noteIv},noteKey,noteBytes));
+  const noteKeyRaw=new Uint8Array(await crypto.subtle.exportKey('raw',noteKey));
+  return {key:vyBytesToBase64(keyRaw),teacherKey:vyBytesToBase64(noteKeyRaw),content:JSON.stringify({
+    version:4,format:'vy-secure-aesgcm-2026',questions:[],compression,
+    iv:vyBytesToBase64(iv),ciphertext:vyBytesToBase64(cipher),
+    teacherIv:vyBytesToBase64(noteIv),teacherCiphertext:vyBytesToBase64(noteCipher)
+  })};
+}
+async function vyDecryptExamBank(content, keyBase64) {
+  if(!globalThis.crypto?.subtle) throw new Error('Trình duyệt không hỗ trợ giải mã an toàn.');
+  const envelope=JSON.parse(content);
+  if(envelope?.format!=='vy-secure-aesgcm-2026'||envelope.version!==4)
+    throw new Error('Định dạng đề mã hóa không hợp lệ.');
+  const rawKey=vyBase64ToBytes(keyBase64);
+  if(rawKey.byteLength!==32) throw new Error('Khóa mở đề không hợp lệ.');
+  const key=await crypto.subtle.importKey('raw',rawKey,'AES-GCM',false,['decrypt']);
+  let bytes=new Uint8Array(await crypto.subtle.decrypt(
+    {name:'AES-GCM',iv:vyBase64ToBytes(envelope.iv)},key,vyBase64ToBytes(envelope.ciphertext)));
+  if(envelope.compression==='gzip') {
+    if(typeof DecompressionStream==='undefined') throw new Error('Hãy dùng Chrome mới để giải nén đề.');
+    bytes=new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  } else if(envelope.compression!=='none') throw new Error('Cách nén đề không được hỗ trợ.');
+  const bank=JSON.parse(new TextDecoder().decode(bytes));
+  if(!(Array.isArray(bank?.questions) && bank.questions.length) &&
+     !(Array.isArray(bank?.variants) && bank.variants.length))
+    throw new Error('Ngân hàng đề Drive không chứa câu hỏi hợp lệ.');
+  return bank;
+}
+// Chỉ giáo viên có quyền đọc teacher_key trong exam_papers mới mở được lời giải.
+async function vyDecryptTeacherNotes(content, teacherKey) {
+  if(!teacherKey)return null;
+  const envelope=JSON.parse(content);
+  if(!envelope.teacherCiphertext)return null;
+  const raw=vyBase64ToBytes(teacherKey);
+  if(raw.length!==32)throw new Error('Khóa lời giải giáo viên không hợp lệ.');
+  const key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['decrypt']);
+  const bytes=new Uint8Array(await crypto.subtle.decrypt(
+    {name:'AES-GCM',iv:vyBase64ToBytes(envelope.teacherIv)},key,
+    vyBase64ToBytes(envelope.teacherCiphertext)));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+function vyAttachTeacherNotes(questions, notesBank, examCode) {
+  if(!notesBank)return questions;
+  if(Array.isArray(notesBank.variants)){
+    const found=notesBank.variants.find(v=>v.code===examCode);
+    return questions.map((q,i)=>({...q,...(found?.notes?.[i]||{})}));
+  }
+  const lookup=new Map((notesBank.notes||[]).map(n=>[`${n.type}:${n.id}`,n]));
+  return questions.map(q=>({...q,...(lookup.get(`${q.type}:${q.id}`)||{})}));
+}
+
+// Trộn lại phần HIỂN THỊ đúng cùng thuật toán với vyCreateSecureVariants.
+// Không bao giờ gắn đáp án vào dữ liệu cho học sinh.
+function vyArrangeRedactedVariant(publicQuestions, settings, examCode) {
+  return ['mcq','tf','short'].flatMap(type => {
+    const group=publicQuestions.filter(q=>(q.type||'mcq')===type);
+    const ordered=settings?.mix ? vyQuizShuffle(group,vyQuizHash(`${settings.seed}:${examCode}:${type}:order`)) : group;
+    return ordered.map(q => {
+      if(type!=='mcq'||!settings?.mix||!settings?.shuffleOptions)return {...q};
+      const positions=vyQuizShuffle(q.options.map((_,i)=>i),vyQuizHash(`${settings.seed}:${examCode}:${q.id}:${q.question}:abcd`));
+      return {...q,options:positions.map(i=>q.options[i])};
+    });
+  });
+}
+// Hỗ trợ cả đề mới (một ngân hàng gốc) và đề cũ vừa được chuyển đổi
+// (các mã đề đã trộn sẵn). Không có đáp án trong file Drive.
+function vyChooseEncryptedQuestions(bank, examCode) {
+  if (Array.isArray(bank.variants)) {
+    const found=bank.variants.find(v=>v.code===examCode);
+    if(!found)throw new Error('Không có mã đề phù hợp trong file Drive.');
+    return found.questions;
+  }
+  return vyArrangeRedactedVariant(bank.questions,bank.settings,examCode);
+}
+
+// Chỉ dành cho GIÁO VIÊN: ghép đáp án từ Supabase vào hình thức đề đã giải mã.
+function vyRestoreTeacherAnswers(publicQuestions, compactQuestions) {
+  if(publicQuestions.length !== compactQuestions.length) throw new Error('Số câu trên Drive và Supabase không khớp.');
+  return publicQuestions.map((q,i)=>{
+    const key=compactQuestions[i];
+    if(q.type!==key?.type)throw new Error('Loại câu giữa Drive và Supabase không khớp.');
+    if(q.type==='tf')return {...q,statements:(q.statements||[]).map((st,j)=>({...st,isTrue:key.statements?.[j]?.isTrue===true}))};
+    if(q.type==='short')return {...q,shortAnswer:key.shortAnswer};
+    return {...q,correct:key.correct};
   });
 }
 
@@ -1787,7 +1921,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
       .eq('category', effectiveCategory)
       .order('created_at', { ascending: false });
     if (isTeacher) {
-      const {data:papers} = await supabase.from('exam_papers').select('exercise_id,assigned_classes,duration_minutes');
+      const {data:papers} = await supabase.from('exam_papers').select('exercise_id,assigned_classes,duration_minutes,encrypted_drive_file_id');
       const metas = Object.fromEntries((papers||[]).map(p=>[p.exercise_id,p]));
       setExercises((exData||[]).map(ex=>({...ex,...(metas[String(ex.id)]||{})})));
     } else {
@@ -2511,16 +2645,24 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   };
 
   const handleDeleteItemSyncDrive = async (table, item) => {
+    if (table==='exercises' && item.secure_exam) {
+      if (!window.confirm(`XÓA VĨNH VIỄN bài "${item.title}"? Sẽ xóa cả BÀI LÀM, ĐIỂM và NHẬT KÝ của bài này trong Supabase. Không thể hoàn tác.`)) return;
+      if (!window.confirm('Xác nhận lần cuối: Bạn đã xuất bảng điểm hoặc không còn cần các điểm này?')) return;
+      try {
+        const {error}=await supabase.rpc('exam_delete_archive',{p_exercise_id:String(item.id)});
+        if(error)throw error;
+        await fetchData();
+        alert('Đã xóa dữ liệu đề và điểm trong Supabase. File đề mã hóa trên Drive không tự xóa để tránh lỗ hổng quyền; bạn có thể xóa thủ công trong thư mục “Đề kiểm tra”.');
+      } catch(err){alert('Không xóa được đề trên Supabase: '+err.message);}
+      return;
+    }
     if (!window.confirm(`Xóa "${item.title}" trên Web VÀ xóa luôn file trên Google Drive?`)) return;
     try {
-      if (item.drive_file_id) {
-        await deleteFileOnGoogleDrive(item.drive_file_id);
-      }
-      await supabase.from(table).delete().eq('id', item.id);
-      fetchData();
-    } catch (err) {
-      alert('Lỗi khi xóa file trên Google Drive: ' + err.message);
-    }
+      if (item.drive_file_id) await deleteFileOnGoogleDrive(item.drive_file_id);
+      const {error}=await supabase.from(table).delete().eq('id', item.id);
+      if(error)throw error;
+      await fetchData();
+    } catch (err) {alert('Lỗi xóa bài học/tài liệu: ' + err.message);}
   };
   
   // ================= AI VISION: CHUYỂN TỪ ẢNH & PDF SANG LATEX + HÌNH VẼ SVG =================
@@ -3037,6 +3179,15 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     }
   };
 
+  const cleanupOldExamEvents = async () => {
+    if (!isTeacher || !window.confirm('Xóa nhật ký giám sát cũ hơn 60 ngày của các bài đã nộp? Không xóa điểm hoặc đề.')) return;
+    try {
+      const {data,error}=await supabase.rpc('exam_cleanup_events',{p_days:60});
+      if(error)throw error;
+      setQuizFolderNotice(`Đã dọn ${data||0} sự kiện giám sát cũ. Điểm và đề giữ nguyên.`);
+    } catch(e){setQuizFolderNotice('Lỗi dọn nhật ký cũ: '+e.message);}
+  };
+
   const moveExistingExercisesToFolder = async () => {
     if (!isTeacher || !exercises.length) return;
     if (!window.confirm(`Chuyển ${exercises.length} file đề hiện có vào thư mục “Đề kiểm tra” trên Drive? Không thay đổi ID file hoặc điểm đã lưu.`)) return;
@@ -3086,6 +3237,8 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     const settings = {mix:quizMixEnabled, variantCount:Number(quizVariantCount), shuffleOptions:quizShuffleOptions,
       startCode:101, seed:2026};
     const variants = vyCreateSecureVariants(parsedQuestions, settings);
+    // Mỗi mã đề chỉ lưu đáp án gọn trong Supabase; không lưu HTML/ảnh.
+    const compactVariants = vyCompactSecureVariants(variants);
 
     let stage = 'Kiểm tra quyền giáo viên trong Supabase';
     let newDriveId = null;
@@ -3107,12 +3260,19 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
         throw new Error('Tài khoản chưa có quyền quản trị đề thi (exam_admins). Cần kiểm tra Supabase SQL Editor, không phải Google Drive.');
       }
 
-      stage = 'Lưu file đề không chứa đáp án lên Google Drive';
-      const publicBank = JSON.stringify({version:3,secure:true,
-        questions:vyHideAnswers(variants[0].questions),settings});
+      stage = 'Mã hóa và lưu một bản đề gọn lên Google Drive';
+      // Drive chỉ giữ bản đề mã hóa KHÔNG có đáp án. Không nhân nội dung theo số mã.
+      const sealedBank = await vyEncryptExamBank(parsedQuestions, settings);
       newDriveId = await uploadToGoogleDrive(
-        `[BAI-TAP-K${selectedGrade}] ${newTitle.trim()}.json`,
-        publicBank, 'application/json', false, 'create_exercise');
+        `SECURE_[K${selectedGrade}] ${newTitle.trim()}.json`,
+        sealedBank.content, 'application/json', false, 'create_exercise');
+      // Chỉ tạo bản ghi Supabase nếu đọc lại và giải mã file Drive thành công.
+      stage = 'Kiểm tra file đề trên Google Drive';
+      const readBack = await fetchFromGoogleDrive(newDriveId, true);
+      if(!readBack)throw new Error('Lưu xong nhưng chưa đọc lại được file Drive. Chưa giao đề.');
+      const testBank = await vyDecryptExamBank(readBack,sealedBank.key);
+      if(testBank.questions?.length !== parsedQuestions.length)
+        throw new Error('Số câu đọc lại từ Drive không khớp.');
 
       stage = 'Tạo bản ghi đề trong Supabase';
       const {data:examRow,error:rowError} = await supabase.from('exercises').insert([{
@@ -3123,9 +3283,11 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       newExamId = examRow.id;
 
       stage = 'Lưu mã đề, đáp án và giao lớp trong Supabase';
-      const {error:publishError} = await supabase.rpc('exam_publish',{
+      const {error:publishError} = await supabase.rpc('exam_publish_drive',{
         p_exercise_id:String(newExamId),p_title:newTitle.trim(),p_grade:selectedGrade,
-        p_category:uploadCategory,p_classes:classes,p_variants:variants,p_minutes:Number(examDuration)
+        p_category:uploadCategory,p_classes:classes,p_variants:compactVariants,
+        p_minutes:Number(examDuration),p_drive_id:newDriveId,p_content_key:sealedBank.key,
+        p_settings:settings,p_teacher_key:sealedBank.teacherKey
       });
       if (publishError) throw publishError;
       published = true;
@@ -3134,7 +3296,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       const {error:activateError} = await supabase.from('exercises').update({is_active:true}).eq('id',newExamId);
       if (activateError) throw activateError;
 
-      setDriveContentCache(prev => ({...prev,[newDriveId]:publicBank}));
+      setDriveContentCache(prev => ({...prev,[newDriveId]:sealedBank.content}));
       setNewTitle('');setRawQuizText('');setWordQuizQuestions(null);
       setWordQuizNotes([]);setWordQuizReport(null);setQuizConfirmed(false);setQuizImportWarnings([]);
       setSelectedCategory(uploadCategory);
@@ -3142,14 +3304,12 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
         // Đã giao đề rồi: không thông báo giả là giao đề thất bại hoặc cho giáo viên thử tạo lại.
         console.warn('Đã giao đề nhưng chưa làm mới được danh sách:',refreshError);
       }
-      alert(`Đã giao đề cho ${classes.join(', ')} (${variants.length} mã đề). Đáp án lưu riêng trên Supabase.`);
+      alert(`Đã giao đề cho ${classes.join(', ')} (${variants.length} mã đề). Đề mã hóa trên Drive; Supabase chỉ lưu đáp án gọn.`);
     } catch (err) {
       // Xóa file vừa tạo nếu chưa có bản ghi Supabase; không xóa file cũ hoặc bài có học sinh nộp.
       let cleanupMessage='';
       if (newDriveId && !newExamId) {
-        try {await deleteFileOnGoogleDrive(newDriveId);} catch (_) {
-          cleanupMessage=' File Drive tạm có thể còn tồn tại; kiểm tra thủ công.';
-        }
+        cleanupMessage=' Có file đề mã hóa tạm trên Drive; hãy xóa thủ công trong thư mục “Đề kiểm tra” nếu cần.';
       }
       const partial = newExamId
         ? published
@@ -3162,17 +3322,61 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     }
   };
 
+  // Chuyển đề secure đời cũ sang Drive nhẹ; giữ nguyên thứ tự mã đề, bài làm và điểm.
+  const migrateExamToLightDrive = async (ex) => {
+    if (!isTeacher || !ex?.secure_exam) return;
+    if (!window.confirm(`Chuyển đề “${ex.title}” sang lưu trữ tiết kiệm? Giữ mã đề, bài làm và điểm. Không thao tác khi học sinh đang thi.`)) return;
+    setQuizBusy(true);
+    let driveId=null;
+    try {
+      const {data:row,error}=await supabase.from('exam_papers')
+        .select('variants,encrypted_drive_file_id').eq('exercise_id',String(ex.id)).single();
+      if(error||!row)throw new Error(error?.message||'Không tìm thấy đề trong Supabase.');
+      if(row.encrypted_drive_file_id)throw new Error('Đề này đã lưu dạng tiết kiệm.');
+      if(!row.variants?.length || !Array.isArray(row.variants[0]?.questions))throw new Error('Bộ đề cũ không hợp lệ.');
+      const sealed=await vyEncryptExamBank(null,null,row.variants);
+      driveId=await uploadToGoogleDrive(`SECURE_[CHUYEN-CU] ${ex.title}.json`,sealed.content,
+        'application/json',false,'create_exercise');
+      const readBack=await fetchFromGoogleDrive(driveId,true);
+      if(!readBack)throw new Error('Đã lưu nhưng chưa đọc lại được file Drive. Chưa chuyển dữ liệu Supabase.');
+      const testBank=await vyDecryptExamBank(readBack,sealed.key);
+      if(testBank.variants?.length!==row.variants.length)throw new Error('Số mã đề trên Drive không khớp.');
+      const {error:migrationError}=await supabase.rpc('exam_migrate_to_drive',{
+        p_exercise_id:String(ex.id),p_variants:vyCompactSecureVariants(row.variants),
+        p_drive_id:driveId,p_content_key:sealed.key,p_teacher_key:sealed.teacherKey
+      });
+      if(migrationError)throw migrationError;
+      await fetchData();
+      alert('Đã chuyển đề sang Drive và giảm dữ liệu Supabase. Mã đề, điểm, bài làm không đổi. File Drive cũ có thể xóa thủ công sau khi kiểm tra.');
+    }catch(err){alert('Chưa chuyển được đề: '+err.message+(driveId?' Có thể còn một file mã hóa tạm trên Drive; hãy kiểm tra thủ công.':''));}
+    finally{setQuizBusy(false);}
+  };
+
   const openExercise = async (ex) => {
     setSecurityNotice('');
     if (ex.secure_exam) {
       if (isTeacher) {
-        const {data,error} = await supabase.from('exam_papers').select('variants').eq('exercise_id',String(ex.id)).single();
-        if(error || !data) return alert('Không mở được đề của giáo viên: '+(error?.message||'Thiếu dữ liệu'));
-        setActiveExercise({...ex,questions_json:data.variants?.[0]?.questions||[]});
-        setQuizExamCode(data.variants?.[0]?.code||'GỐC');
-        setUserAnswers({});setSubmittedScore(null);setExamSession(null);
-        const {data:submissions} = await supabase.from('submissions').select('*').eq('exercise_id',ex.id).order('created_at',{ascending:false});
-        setSubmissionsList(submissions||[]);
+        try {
+          const {data,error} = await supabase.from('exam_papers')
+            .select('variants,encrypted_drive_file_id,content_key,content_settings,teacher_key')
+            .eq('exercise_id',String(ex.id)).single();
+          if(error || !data)throw new Error(error?.message||'Thiếu dữ liệu');
+          let questions=data.variants?.[0]?.questions||[];
+          if(data.encrypted_drive_file_id){
+            const encrypted=await fetchFromGoogleDrive(data.encrypted_drive_file_id);
+            if(!encrypted)throw new Error('Không tải được đề mã hóa từ Drive.');
+            const bank=await vyDecryptExamBank(encrypted,data.content_key);
+            const reordered=vyChooseEncryptedQuestions(bank,data.variants?.[0]?.code||'GỐC');
+            questions=vyRestoreTeacherAnswers(reordered,questions);
+            const extras=await vyDecryptTeacherNotes(encrypted,data.teacher_key);
+            questions=vyAttachTeacherNotes(questions,extras,data.variants?.[0]?.code||'GỐC');
+          }
+          setActiveExercise({...ex,questions_json:questions});
+          setQuizExamCode(data.variants?.[0]?.code||'GỐC');
+          setUserAnswers({});setSubmittedScore(null);setExamSession(null);
+          const {data:submissions} = await supabase.from('submissions').select('*').eq('exercise_id',ex.id).order('created_at',{ascending:false});
+          setSubmissionsList(submissions||[]);
+        } catch(err){alert('Không mở được đề của giáo viên: '+err.message);}
         return;
       }
       try {
@@ -3181,10 +3385,17 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
           p_password:currentStudent.password
         });
         if (error) throw error;
-        setActiveExercise({...ex,questions_json:data.questions||[]});
+        let questions=data.questions||[];
+        if(data.driveFileId){
+          const encrypted=await fetchFromGoogleDrive(data.driveFileId);
+          if(!encrypted)throw new Error('Không tải được đề trên Google Drive.');
+          const bank=await vyDecryptExamBank(encrypted,data.driveKey);
+          questions=vyChooseEncryptedQuestions(bank,data.examCode||'GỐC');
+        }
+        setActiveExercise({...ex,questions_json:questions});
         setQuizExamCode(data.examCode||'GỐC');
         setUserAnswers(data.answers||{});
-        setSubmittedScore(data.submitted?{score:data.score,correct:'—',total:data.questions?.length||0}:null);
+        setSubmittedScore(data.submitted?{score:data.score,correct:'—',total:questions.length}:null);
         setExamSession({token:data.attemptToken,deadlineAt:data.deadlineAt});
       } catch(err) {alert('Không thể vào bài kiểm tra: '+err.message);}
       return;
@@ -4099,7 +4310,7 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                   </div>
                 )}
 
-                {isTeacher && <div className="bg-white rounded-xl p-3 flex flex-wrap gap-3 items-center justify-between text-xs"><span className="font-bold text-slate-700">📁 Drive: KHO_DU_LIEU_WEB_TOAN / Đề kiểm tra</span><button disabled={quizBusy} onClick={moveExistingExercisesToFolder} className="rounded-lg border border-indigo-300 px-3 py-2 text-indigo-700 font-bold disabled:opacity-50">Chuyển đề cũ vào thư mục này</button>{quizFolderNotice && <p className="w-full text-blue-700">{quizFolderNotice}</p>}</div>}
+                {isTeacher && <div className="bg-white rounded-xl p-3 flex flex-wrap gap-3 items-center justify-between text-xs"><span className="font-bold text-slate-700">📁 Drive: KHO_DU_LIEU_WEB_TOAN / Đề kiểm tra</span><button disabled={quizBusy} onClick={moveExistingExercisesToFolder} className="rounded-lg border border-indigo-300 px-3 py-2 text-indigo-700 font-bold disabled:opacity-50">Chuyển đề cũ vào thư mục này</button><button disabled={quizBusy} onClick={cleanupOldExamEvents} className="rounded-lg border border-emerald-300 px-3 py-2 text-emerald-800 font-bold disabled:opacity-50">Dọn nhật ký trên 60 ngày</button>{quizFolderNotice && <p className="w-full text-blue-700">{quizFolderNotice}</p>}</div>}
                 {/* DANH SÁCH ĐỀ KIỂM TRA ĐÃ GIAO */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {exercises.length === 0 && (
@@ -4139,6 +4350,11 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                           {isTeacher ? '👁️ Xem Đề & Bảng Điểm' : '✏️ Vào Làm Bài Ngay'}
                         </button>
 
+                        {isTeacher && ex.secure_exam && !ex.encrypted_drive_file_id && (
+                          <button disabled={quizBusy} onClick={()=>migrateExamToLightDrive(ex)}
+                            className="rounded-lg bg-green-100 text-green-900 px-2 py-2 text-xs font-bold disabled:opacity-50"
+                            title="Chuyển dữ liệu nặng khỏi Supabase, giữ nguyên kết quả">Giảm MB</button>
+                        )}
                         {isTeacher && ex.secure_exam && (
                           <button onClick={()=>setMonitorExercise(ex)}
                             className="rounded-lg bg-amber-100 text-amber-900 px-2 py-2 text-xs font-bold">
