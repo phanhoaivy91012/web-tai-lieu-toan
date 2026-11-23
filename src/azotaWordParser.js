@@ -137,6 +137,7 @@ const tfLabels=text=>{
   return matches;
 };
 const isMarked=(runs,start,end) => runs.some(r=>r.marked && r.start < end && r.end > start);
+const isUnderlined=(runs,start,end) => runs.some(r=>r.underlined && r.start < end && r.end > start);
 const htmlFrom=(raw,media) => {
   return String(raw||'').split(/(⟦WIMG\d+⟧|⟦WTABLE\d+⟧|⟦WMATH\d+⟧)/g)
     .map(part=>Object.hasOwn(media,part)?media[part]:esc(part).replace(/\n/g,'<br/>')).join('');
@@ -153,7 +154,7 @@ function isAnswer(s){return /^(?:Đáp\s*án|Đáp\s*số|ĐS|Kết\s*quả|Answ
 const newQuestion=(sectionName,index)=>({id:index,type:sectionName,question:'',options:['','','',''],correct:null,statements:[],shortAnswer:'',solution:'',parseWarning:'',_stem:[],_options:{},_statements:{},_correctLabels:[],_parts:[],_warnings:[],_solution:[],_answerText:[],_format:'',_active:''});
 
 /** @param {ArrayBuffer} buffer @param {*} zipLib window.JSZip @param {Function} _legacyDecodeWmf Ignored, retained for App.jsx compatibility */
-export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
+export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf,{tfUnderlineIsTrue=true}={}) {
   if (!buffer || buffer.byteLength>30*1024*1024)throw new Error('File Word quá 30 MB. Hãy giảm dung lượng ảnh trước khi nhập.');
   const zip=await zipLib.loadAsync(buffer);
   const xml=await zip.file('word/document.xml')?.async('string');
@@ -190,12 +191,19 @@ export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
     }
     return {w:widthPt||0,h:heightPt||0};
   };
-  const imageStyle=(dimensions,isFormula)=>{
+  const imageStyle=(dimensions)=>{
     const {w,h}=dimensions||{};
-    // Enlarged Word pt dimensions for the large-font online quiz. Preserve exact aspect ratio.
-    const scaled= w>0 && h>0 && w/h<40 && h/w<40;
-    const size=scaled ? `width:${Math.max(12,Math.min(1200,Math.round(w*1.9)))}px;height:${Math.max(12,Math.min(750,Math.round(h*1.9)))}px;` : '';
-    return `${size}max-width:100%;object-fit:contain;display:inline-block;vertical-align:${isFormula?'-0.22em':'middle'};`;
+    const scaled=w>0 && h>0 && w/h<40 && h/w<40;
+    const size=scaled ? `width:${Math.max(12,Math.min(1200,Math.round(w*1.5)))}px;height:${Math.max(12,Math.min(750,Math.round(h*1.5)))}px;` : '';
+    return `${size}max-width:100%;object-fit:contain;display:inline-block;vertical-align:middle;`;
+  };
+  // Match *text* line-height rather than enlarging Word's WMF bounding rectangle by 1.9x.
+  // Taller constructs (fractions, matrices, systems) may occupy multiple text rows.
+  const inlineMathStyle=(dimensions)=>{
+    const h=Number(dimensions?.h)||16;
+    const em=Math.max(1.08,Math.min(4.5,h/13));
+    const baseline=em>1.8?'middle':'-0.18em';
+    return `height:${em.toFixed(2)}em;width:auto;max-width:100%;object-fit:contain;display:inline-block;vertical-align:${baseline};margin:0 .06em;`;
   };
   // Legacy MathType uses Windows fonts; report custom faces for mandatory teacher review.
   const wmfFontFaces=bytes=>{
@@ -231,7 +239,7 @@ export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
     if(['png','jpg','jpeg','gif','webp','bmp'].includes(ext)) {
       mediaStats.bitmap++;
       const mime=ext==='jpg'?'jpeg':ext;
-      html=`<img alt="Hình gốc trong đề Word" src="data:image/${mime};base64,${await entry.async('base64')}" style="${imageStyle(dims,false)}max-height:450px;"/>`;
+      html=`<img alt="Hình gốc trong đề Word" src="data:image/${mime};base64,${await entry.async('base64')}" style="${imageStyle(dims)}max-height:450px;"/>`;
     } else if(ext==='wmf'||ext==='emf') {
       if(ext==='wmf')mediaStats.mathTypeWmf++;else mediaStats.emf++;
       try {
@@ -245,7 +253,10 @@ export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
           convertedCache.set(path,png || null);
         }
         if(typeof png==='string' && png.startsWith('data:image/png;base64,')) {
-          html=`<img alt="Công thức hoặc hình gốc từ WMF/EMF" src="${png}" style="${imageStyle(dims,true)}"/>`;
+          // Large embedded metafiles can be diagrams rather than inline MathType.
+          const figure=(dims.w>120 && dims.h>100)||dims.h>150;
+          const kind=figure?'figure':'formula';
+          html=`<img class="${figure?'vy-word-figure':'vy-word-formula'}" data-vy-word-kind="${kind}" data-vy-word-format="${ext}" alt="${figure?'Hình gốc từ Word':'Công thức MathType gốc (có thể phiên sang LaTeX sau khi duyệt)'}" src="${png}" style="${figure?imageStyle(dims):inlineMathStyle(dims)}"/>`;
         }
       } catch(err) { notes.push(`Không thể kết xuất ${ext.toUpperCase()}: ${String(err?.message||err).slice(0,90)}`); }
       if(!html){mediaStats.unrendered++;html='[CHUA_DOC_CONG_THUC]';}
@@ -259,31 +270,32 @@ export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
     const underline=!!u && !['none','0','false'].includes(String(val(u)).toLowerCase());
     const color=val(first(pr,'color')).toUpperCase();
     const red=['FF0000','C00000','EE0000','DC2626','EF4444'].includes(color);
-    return underline||red;
+    // ABCD may be red or underlined, but Đ/S MUST use actual underlining only.
+    return {marked:underline||red,underlined:underline};
   };
   const extractParagraph=async p=>{
     let text='';const runs=[];const localMedia=[];
-    const append=(value,marked=false)=>{
+    const append=(value,marked=false,underlined=false)=>{
       if(!value)return;
       const start=text.length;text+=value;
-      runs.push({start,end:text.length,marked});
+      runs.push({start,end:text.length,marked,underlined});
     };
-    const walk=async(node,marked=false)=>{
+    const walk=async(node,marked=false,underlined=false)=>{
       const ns=node.namespaceURI;
       const n=local(node);
       if(ns===WORD && n==='r') {
-        const mark=marked||metaFor(node);
-        for(const child of elementKids(node))await walk(child,mark);
+        const format=metaFor(node);
+        for(const child of elementKids(node))await walk(child,marked||format.marked,underlined||format.underlined);
         return;
       }
-      if(ns===WORD && n==='t')return append(node.textContent||'',marked);
-      if(ns===WORD && n==='tab')return append(' \t ',marked);
-      if(ns===WORD && ['br','cr'].includes(n))return append('\n',marked);
+      if(ns===WORD && n==='t')return append(node.textContent||'',marked,underlined);
+      if(ns===WORD && n==='tab')return append(' \t ',marked,underlined);
+      if(ns===WORD && ['br','cr'].includes(n))return append('\n',marked,underlined);
       if(ns===MATH && ['oMath','oMathPara'].includes(n)) {
         mediaStats.omml++;
         const tex=ommlToLatex(node);
         if(tex !== null && tex.trim()) {
-          const formatted=local(node)==='oMathPara'?`\[${tex}\]`:`\(${tex}\)`;
+          const formatted=local(node)==='oMathPara'?`\\[${tex}\\]`:`\\(${tex}\\)`;
           append(await addMedia(formatted,'WMATH'),false);
         } else {
           const warnings=[];const html=omml(node,warnings);
@@ -306,9 +318,9 @@ export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
       }
       if(ns===WORD && ['pPr','rPr','numPr','proofErr','bookmarkStart','bookmarkEnd','lastRenderedPageBreak'].includes(n))return;
       if(ns===WORD && n==='del')return; // Ignore deleted tracked changes.
-      for(const child of elementKids(node))await walk(child,marked);
+      for(const child of elementKids(node))await walk(child,marked,underlined);
     };
-    for(const child of elementKids(p))await walk(child,false);
+    for(const child of elementKids(p))await walk(child,false,false);
     const numbered=descend(first(p,'pPr'),'numPr').length>0;
     const removed=(text.match(/^\s*/)||[''])[0].length;
     return {text:text.trim().replace(/\u00a0/g,' '),runs:runs.map(r=>({...r,start:r.start-removed,end:r.end-removed})),numbered};
@@ -402,12 +414,16 @@ export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
     if(current.type==='tf'&&startsTF){
       for(let i=0;i<tfl.length;i++){
         const m=tfl[i];const next=tfl[i+1];let content=s.slice(m.end,next?next.start:s.length).trim();
-        let yes=null;
-        if(m.star||isMarked(styleRuns,m.start,m.end))yes=true;
-        if(/\[(?:Đ|ĐÚNG|TRUE)\]\s*$/i.test(content)){yes=true;content=content.replace(/\[(?:Đ|ĐÚNG|TRUE)\]\s*$/i,'').trim();}
-        if(/\[(?:S|SAI|FALSE)\]\s*$/i.test(content)){yes=false;content=content.replace(/\[(?:S|SAI|FALSE)\]\s*$/i,'').trim();}
+        // User's Azota convention: underlined label = Đúng; un-underlined label = Sai.
+        // Red text alone is not evidence of Đúng. Explicit [Đ]/[S] still wins.
+        let yes=m.star||isUnderlined(styleRuns,m.start,m.end) ? true : (tfUnderlineIsTrue?false:null);
+        let source=yes===true?'gạch chân / dấu *':(tfUnderlineIsTrue?'không gạch chân':'chưa xác định');
+        const hasTrue=/\[(?:Đ|ĐÚNG|TRUE)\]\s*$/i.test(content);
+        const hasFalse=/\[(?:S|SAI|FALSE)\]\s*$/i.test(content);
+        if(hasTrue){if(yes===false&&isUnderlined(styleRuns,m.start,m.end)) current._warnings.push(`Ý ${m.label}: mâu thuẫn dấu gạch chân và [Đ].`);yes=true;source='[Đ]';content=content.replace(/\[(?:Đ|ĐÚNG|TRUE)\]\s*$/i,'').trim();}
+        if(hasFalse){if(yes===true) current._warnings.push(`Ý ${m.label}: gạch chân nhưng có [S]; hãy kiểm tra.`);yes=false;source='[S]';content=content.replace(/\[(?:S|SAI|FALSE)\]\s*$/i,'').trim();}
         if(current._statements[m.label]) current._warnings.push(`Mệnh đề ${m.label}) xuất hiện nhiều lần.`);
-        current._statements[m.label]={segments:[content],marked:yes};
+        current._statements[m.label]={segments:[content],marked:yes,source};
         current._active=`statement:${m.label}`;
       }
       continue;
@@ -433,9 +449,10 @@ export async function parseAzotaWordFile(buffer,zipLib,_legacyDecodeWmf) {
     } else if(q.type==='tf'){
       const items='abcd'.split('').map(c=>q._statements[c]);
       const anyMarked=items.some(v=>v?.marked===true);
-      q.statements=items.map((v,i)=>({label:`${'abcd'[i]})`,text:htmlFrom(v?.segments.join(' ')||'',media),isTrue:v?(v.marked===true?true:v.marked===false?false:anyMarked?false:null):null}));
+      q.statements=items.map((v,i)=>({label:`${'abcd'[i]})`,text:htmlFrom(v?.segments.join(' ')||'',media),isTrue:v?v.marked:null,answerSource:v?.source||''}));
       if(items.some(v=>!v))q._warnings.push('Thiếu mệnh đề a/b/c/d.');
-      if(!anyMarked && items.some(v=>v?.marked===null))q._warnings.push('Không tìm thấy dấu đáp án Đúng/Sai; cần điền bằng tay.');
+      if(tfUnderlineIsTrue && !anyMarked)notes.push(`Câu ${q.id} Phần II: không có ý nào được gạch chân; theo quy ước đã chọn, cả 4 ý đều Sai. Hãy đối chiếu Word gốc.`);
+      if(!tfUnderlineIsTrue && items.some(v=>v?.marked===null))q._warnings.push('Không có quy ước gạch chân; hãy điền đáp án Đúng/Sai bằng tay.');
     } else if(q.type==='short'){
       if(!q.shortAnswer)q._warnings.push('Không tìm thấy dòng Đáp án: cho câu trả lời ngắn.');
     }
