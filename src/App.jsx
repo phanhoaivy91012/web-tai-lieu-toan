@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import VzotaPanel from './VzotaPanel';
 import { parseAzotaWordFile } from './azotaWordParser';
+import WordFormulaEditor from './WordFormulaEditor';
 import DOMPurify from 'dompurify';
 import './examMath.css';
+import './wordFormulaFix.css';
 import ExamGuard from './ExamGuard';
 import ExamTeacherMonitor from './ExamTeacherMonitor';
 import { 
@@ -1575,8 +1577,8 @@ function vyCreateSecureVariants(questions, settings) {
 }
 function vyHideAnswers(questions) {
   return questions.map(q => {
-    const {correct,shortAnswer,solution,parseWarning,...publicQ} = q;
-    if (publicQ.type === 'tf') publicQ.statements = (publicQ.statements || []).map(({isTrue,correct,...s}) => s);
+    const {correct,shortAnswer,solution,parseWarning,answerSource,...publicQ} = q;
+    if (publicQ.type === 'tf') publicQ.statements = (publicQ.statements || []).map(({isTrue,correct,answerSource,...s}) => s);
     return publicQ;
   });
 }
@@ -1694,6 +1696,8 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [quizVariantCount, setQuizVariantCount] = useState(4);
   const [quizShuffleOptions, setQuizShuffleOptions] = useState(true);
   const [quizConfirmed, setQuizConfirmed] = useState(false);
+  // Quy ước đáp án Đ/S của đề Azota: gạch chân nhãn = Đúng, không gạch chân = Sai.
+  const [tfUnderlineIsTrue, setTfUnderlineIsTrue] = useState(true);
   const [quizExamCode, setQuizExamCode] = useState('');
   const [quizBusy, setQuizBusy] = useState(false);
   const [quizFolderNotice, setQuizFolderNotice] = useState('');
@@ -2958,7 +2962,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
       // 2. Word DOCX: đọc cấu trúc OOXML, không gom từng đoạn thành văn bản trơn.
       if (fileNameLower.endsWith('.docx')) {
         if (!window.JSZip) throw new Error('JSZip chưa sẵn sàng; hãy tải lại trang.');
-        const parsed = await parseAzotaWordFile(await file.arrayBuffer(), window.JSZip, decodeMathTypeFromWordBinary);
+        const parsed = await parseAzotaWordFile(await file.arrayBuffer(), window.JSZip, decodeMathTypeFromWordBinary, {tfUnderlineIsTrue});
         setWordQuizQuestions(parsed.questions);
         setWordQuizNotes(parsed.notes);
         setWordQuizReport({fileName:file.name, summary:parsed.summary, mediaStats:parsed.mediaStats, paragraphs:parsed.paragraphs});
@@ -3064,52 +3068,97 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   const updateText = (i, key, value) => updateWordQuiz(i, q => ({...q,[key]:value}));
 
   const addExercise = async () => {
+    if (quizBusy) return; // Chống gửi trùng khi thao tác đang thực hiện.
     if (!newTitle.trim() || (!wordQuizQuestions?.length && !rawQuizText.trim())) {
-      return alert('Vui lòng nhập Tên đề kiểm tra và tải file .tex / .docx (hoặc dán nội dung câu hỏi)!');
+      return alert('Vui lòng nhập tên đề kiểm tra và tải file .tex / .docx (hoặc dán nội dung câu hỏi)!');
     }
 
     const parsedQuestions = wordQuizQuestions || parseAzotaOrTexToQuestions(rawQuizText);
     const quizIssues = vyCheckQuizQuestions(parsedQuestions, quizImportWarnings);
     if (quizIssues.length) return alert('Chưa thể giao đề khi còn lỗi cần kiểm tra:\n' + quizIssues.slice(0, 12).join('\n'));
-    if (!quizConfirmed) return alert('Hãy kiểm tra bản xem trước, đáp án và đánh dấu xác nhận trước khi giao.');
-    if (parsedQuestions.length === 0) {
-      return alert('Không nhận diện được câu hỏi nào! Hãy kiểm tra lại định dạng Câu 1... hoặc \\begin{ex}...');
-    }
+    if (!quizConfirmed) return alert('Hãy đối chiếu bản xem trước và đáp án với Word gốc rồi xác nhận trước khi giao.');
+    if (!parsedQuestions.length) return alert('Không nhận diện được câu hỏi nào.');
 
-    const validClasses = new Set(studentsList.filter(st=>Number(st.grade)===Number(selectedGrade)
-      && st.category===uploadCategory).map(st=>st.class_name?.trim()).filter(Boolean));
-    const classes = assignedClasses.filter(cls=>validClasses.has(cls));
+    const validClasses = new Set(studentsList.filter(st => Number(st.grade)===Number(selectedGrade)
+      && st.category===uploadCategory).map(st => st.class_name?.trim()).filter(Boolean));
+    const classes = assignedClasses.filter(cls => validClasses.has(cls));
     if (!classes.length) return alert('Hãy chọn ít nhất một lớp hợp lệ trong đúng khối và phân hệ.');
     const settings = {mix:quizMixEnabled, variantCount:Number(quizVariantCount), shuffleOptions:quizShuffleOptions,
       startCode:101, seed:2026};
-    const variants = vyCreateSecureVariants(parsedQuestions,settings);
+    const variants = vyCreateSecureVariants(parsedQuestions, settings);
+
+    let stage = 'Kiểm tra quyền giáo viên trong Supabase';
+    let newDriveId = null;
+    let newExamId = null;
+    let published = false;
+    setQuizBusy(true);
     try {
-      // File Drive chỉ giữ đề KHÔNG CÓ đáp án. Đáp án/lời giải vào exam_papers với RLS admin.
+      // Quyền teacher trong giao diện chưa đồng nghĩa quyền exam_admins của hệ thống thi.
+      // Kiểm tra trước khi ghi file để tránh tạo file Drive nếu chưa có quyền.
+      const {data:authData,error:authError} = await supabase.auth.getUser();
+      if (authError || !authData?.user?.id) {
+        throw new Error('Phiên đăng nhập Supabase không hợp lệ. Hãy đăng nhập giáo viên lại.');
+      }
+      // Dùng RPC SECURITY DEFINER do migration cung cấp; không đọc trực tiếp
+      // exam_admins vì bảng này không cấp SELECT cho client và có RLS.
+      const {data:isExamAdmin,error:adminError} = await supabase.rpc('exam_is_admin');
+      if (adminError) throw new Error('Không kiểm tra được quyền thi trong Supabase: '+adminError.message);
+      if (isExamAdmin !== true) {
+        throw new Error('Tài khoản chưa có quyền quản trị đề thi (exam_admins). Cần kiểm tra Supabase SQL Editor, không phải Google Drive.');
+      }
+
+      stage = 'Lưu file đề không chứa đáp án lên Google Drive';
       const publicBank = JSON.stringify({version:3,secure:true,
         questions:vyHideAnswers(variants[0].questions),settings});
-      const driveFileId = await uploadToGoogleDrive(
+      newDriveId = await uploadToGoogleDrive(
         `[BAI-TAP-K${selectedGrade}] ${newTitle.trim()}.json`,
-        publicBank,'application/json',false,'create_exercise');
+        publicBank, 'application/json', false, 'create_exercise');
+
+      stage = 'Tạo bản ghi đề trong Supabase';
       const {data:examRow,error:rowError} = await supabase.from('exercises').insert([{
         title:newTitle.trim(),grade:selectedGrade,category:uploadCategory,
-        drive_file_id:driveFileId,questions_json:[],is_active:false,secure_exam:true
+        drive_file_id:newDriveId,questions_json:[],is_active:false,secure_exam:true
       }]).select('id').single();
-      if(rowError) throw rowError;
+      if (rowError) throw rowError;
+      newExamId = examRow.id;
+
+      stage = 'Lưu mã đề, đáp án và giao lớp trong Supabase';
       const {error:publishError} = await supabase.rpc('exam_publish',{
-        p_exercise_id:String(examRow.id),p_title:newTitle.trim(),p_grade:selectedGrade,
+        p_exercise_id:String(newExamId),p_title:newTitle.trim(),p_grade:selectedGrade,
         p_category:uploadCategory,p_classes:classes,p_variants:variants,p_minutes:Number(examDuration)
       });
-      if(publishError) throw publishError;
-      const {error:activateError} = await supabase.from('exercises').update({is_active:true}).eq('id',examRow.id);
-      if(activateError) throw activateError;
-      setDriveContentCache(prev=>({...prev,[driveFileId]:publicBank}));
+      if (publishError) throw publishError;
+      published = true;
+
+      stage = 'Kích hoạt bài kiểm tra';
+      const {error:activateError} = await supabase.from('exercises').update({is_active:true}).eq('id',newExamId);
+      if (activateError) throw activateError;
+
+      setDriveContentCache(prev => ({...prev,[newDriveId]:publicBank}));
       setNewTitle('');setRawQuizText('');setWordQuizQuestions(null);
       setWordQuizNotes([]);setWordQuizReport(null);setQuizConfirmed(false);setQuizImportWarnings([]);
       setSelectedCategory(uploadCategory);
-      await fetchData();
+      try {await fetchData();} catch (refreshError) {
+        // Đã giao đề rồi: không thông báo giả là giao đề thất bại hoặc cho giáo viên thử tạo lại.
+        console.warn('Đã giao đề nhưng chưa làm mới được danh sách:',refreshError);
+      }
       alert(`Đã giao đề cho ${classes.join(', ')} (${variants.length} mã đề). Đáp án lưu riêng trên Supabase.`);
     } catch (err) {
-      alert('Lỗi lưu bài tập lên Google Drive: ' + err.message);
+      // Xóa file vừa tạo nếu chưa có bản ghi Supabase; không xóa file cũ hoặc bài có học sinh nộp.
+      let cleanupMessage='';
+      if (newDriveId && !newExamId) {
+        try {await deleteFileOnGoogleDrive(newDriveId);} catch (_) {
+          cleanupMessage=' File Drive tạm có thể còn tồn tại; kiểm tra thủ công.';
+        }
+      }
+      const partial = newExamId
+        ? published
+          ? ' Đáp án đã được giao trong Supabase nhưng đề chưa kích hoạt; kiểm tra trước khi thao tác lại.'
+          : ' Có bản ghi Supabase chưa hoàn tất; kiểm tra trước khi giao lại.'
+        : '';
+      alert(`Lỗi tại bước “${stage}”: ${err.message}.${partial}${cleanupMessage}`);
+    } finally {
+      setQuizBusy(false);
     }
   };
 
@@ -3918,6 +3967,16 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                       </div>
                     </div>
 
+                    <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+                      <input type="checkbox" checked={tfUnderlineIsTrue} onChange={e=>{
+                        if(wordQuizQuestions && !window.confirm('Đổi cách đọc Đúng/Sai sẽ bỏ dữ liệu Word vừa nhập. Bạn sẽ cần chọn lại file. Tiếp tục?')) return;
+                        setTfUnderlineIsTrue(e.target.checked);
+                        setWordQuizQuestions(null);setWordQuizNotes([]);setWordQuizReport(null);
+                        setRawQuizText('');setQuizImportWarnings([]);setQuizConfirmed(false);
+                      }}/>
+                      <span>Đề Word Azota dùng quy ước <b>gạch chân a/b/c/d = Đúng; không gạch chân = Sai</b> (kể cả khi cả 4 ý Sai). Nếu đề dùng kiểu khác, bỏ chọn TRƯỚC khi nhập Word rồi tự duyệt đáp án.</span>
+                    </label>
+
                     <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-3 space-y-2">
                       <h4 className="font-extrabold text-blue-900 text-sm">Giao đề theo lớp (bắt buộc)</h4>
                       <div className="flex flex-wrap gap-2">
@@ -3996,9 +4055,9 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                             <b>Câu {idx+1} — {q.type==='mcq'?'ABCD':q.type==='tf'?'Đúng/Sai':'Trả lời ngắn'}</b>
                             {!!q.parseWarning && <div className="rounded bg-rose-50 p-2 text-red-700">⚠ {q.parseWarning}<div className="mt-2"><button type="button" className="rounded border border-red-300 bg-white px-2 py-1 font-bold" onClick={()=>{if(window.confirm('Chỉ xác nhận sau khi đã sửa và so sánh câu này với Word gốc. Đánh dấu đã xử lý lỗi cấu trúc?'))updateWordQuiz(idx,r=>({...r,parseWarning:''}));}}>Tôi đã sửa và đối chiếu câu này</button></div></div>}
                             <MathHtmlBox content={q.question} className="text-sm leading-relaxed"/>
-                            <details><summary className="cursor-pointer text-indigo-700">Sửa nội dung câu hỏi (HTML / LaTeX)</summary><textarea className="mt-1 w-full rounded border p-2 font-mono" rows={4} value={q.question} onChange={e=>updateText(idx,'question',e.target.value)}/></details>
+                            <details><summary className="cursor-pointer text-indigo-700">Sửa nội dung / công thức LaTeX</summary><WordFormulaEditor value={q.question} onChange={value=>updateText(idx,'question',value)} geminiApiKey={geminiApiKey} PreviewComponent={MathHtmlBox}/></details>
                             {q.type==='mcq' && <>
-                              {q.options.map((v,j)=><div key={j} className="rounded border bg-white p-2"><b>{'ABCD'[j]}.</b><MathHtmlBox content={v} className="text-sm"/><details><summary className="cursor-pointer text-indigo-700">Sửa phương án {'ABCD'[j]}</summary><textarea className="w-full rounded border p-1 font-mono" rows={3} value={v} onChange={e=>updateWordQuiz(idx,r=>({...r,options:r.options.map((x,k)=>k===j?e.target.value:x)}))}/></details></div>)}
+                              {q.options.map((v,j)=><div key={j} className="rounded border bg-white p-2"><b>{'ABCD'[j]}.</b><MathHtmlBox content={v} className="text-sm"/><details><summary className="cursor-pointer text-indigo-700">Sửa phương án {'ABCD'[j]} / LaTeX</summary><WordFormulaEditor value={v} onChange={value=>updateWordQuiz(idx,r=>({...r,options:r.options.map((x,k)=>k===j?value:x)}))} geminiApiKey={geminiApiKey} PreviewComponent={MathHtmlBox}/></details></div>)}
                               <label className="font-bold">Đáp án đúng:
                                 <select className="ml-2 rounded border bg-white px-2 py-1" value={q.correct??''} onChange={e=>updateWordQuiz(idx,r=>({...r,correct:e.target.value===''?null:Number(e.target.value)}))}>
                                   <option value="">Chưa xác định</option>{'ABCD'.split('').map((letter,j)=><option key={letter} value={j}>{letter}</option>)}
@@ -4006,9 +4065,9 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                               </label>
                             </>}
                             {q.type==='tf' && q.statements.map((st,j)=><div key={j} className="rounded border bg-white p-2"><b>{'abcd'[j]})</b> <MathHtmlBox content={st.text} className="text-sm"/>
-                              <div className="mt-1 flex flex-wrap items-center gap-2"><select className="rounded border px-2 py-1" value={st.isTrue===null?'':st.isTrue?'T':'F'} onChange={e=>updateWordQuiz(idx,r=>({...r,statements:r.statements.map((v,k)=>k===j?{...v,isTrue:e.target.value==='T'?true:e.target.value==='F'?false:null}:v)}))}>
+                              <div className="mt-1 flex flex-wrap items-center gap-2"><select className="rounded border px-2 py-1" value={st.isTrue===null?'':st.isTrue?'T':'F'} onChange={e=>updateWordQuiz(idx,r=>({...r,statements:r.statements.map((v,k)=>k===j?{...v,isTrue:e.target.value==='T'?true:e.target.value==='F'?false:null,answerSource:'Giáo viên sửa thủ công'}:v)}))}>
                                 <option value="">Chưa rõ</option><option value="T">Đúng</option><option value="F">Sai</option></select>
-                                <details className="flex-1"><summary className="cursor-pointer text-indigo-700">Sửa mệnh đề</summary><textarea rows={2} className="w-full rounded border p-1 font-mono" value={st.text} onChange={e=>updateWordQuiz(idx,r=>({...r,statements:r.statements.map((v,k)=>k===j?{...v,text:e.target.value}:v)}))}/></details>
+                                <details className="flex-1"><summary className="cursor-pointer text-indigo-700">Sửa mệnh đề / LaTeX</summary><WordFormulaEditor value={st.text} onChange={value=>updateWordQuiz(idx,r=>({...r,statements:r.statements.map((v,k)=>k===j?{...v,text:value}:v)}))} geminiApiKey={geminiApiKey} PreviewComponent={MathHtmlBox}/></details>
                               </div>
                             </div>)}
                             {q.type==='short' && <label className="flex items-center gap-2 font-bold">Đáp án ngắn:<input className="rounded border bg-white px-2 py-1" value={q.shortAnswer} onChange={e=>updateText(idx,'shortAnswer',e.target.value)}/></label>}
