@@ -1,0 +1,15 @@
+/* Căn hình MathType theo dòng; không sửa CSS cũ của bài tập và bảng vẽ. */
+.vy-math-content img.vy-word-formula {
+  display: inline-block;
+  max-width: 100%;
+  object-fit: contain;
+  vertical-align: middle;
+  margin-inline: .06em;
+}
+.vy-math-content img.vy-word-figure {
+  display: inline-block;
+  max-width: 100%;
+  object-fit: contain;
+  vertical-align: middle;
+}
+.vy-math-content .katex { vertical-align: baseline; }
