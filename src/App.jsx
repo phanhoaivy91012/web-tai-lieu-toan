@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import MrvyGateway from './MrvyGateway';
+import ExamClassDashboard from './ExamClassDashboard';
 import { supabase } from './supabaseClient';
 import VzotaPanel from './VzotaPanel';
 import { parseAzotaWordFile } from './azotaWordParser';
