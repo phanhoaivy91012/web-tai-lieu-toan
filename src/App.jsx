@@ -4377,6 +4377,15 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                             Giám sát
                           </button>
                         )}
+                        {isTeacher && ex.secure_exam && (
+                            <button
+                          onClick={() => setStatsExercise(ex)}
+                            className="rounded-lg bg-indigo-100 text-indigo-900 px-2 py-2 text-xs font-bold"
+                                >
+                            Thống kê / Mật khẩu
+                          </button>
+                            )}
+                        
                         {isTeacher && (
                           <div className="flex items-center gap-1">
                             <button
