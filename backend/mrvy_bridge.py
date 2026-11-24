@@ -22,6 +22,9 @@ SB_ANON = os.getenv("SUPABASE_ANON_KEY", "")
 MRVY_URL = os.getenv("MRVY_BRIDGE_API_URL", "")
 BRIDGE_SECRET = os.getenv("MRVY_VZOTA_SHARED_SECRET", "")
 DRIVE_SCRIPT_URL = os.getenv("MRVY_DRIVE_READ_URL", "")
+# Same Apps Script already used by the Vzota learning-tab in src/App.jsx.
+COURSE_DRIVE_URL = os.getenv("MRVY_COURSE_DRIVE_URL", "https://script.google.com/macros/s/AKfycbxfN16PRs1KoS9JHW6-HR-EQZW9qgH6BpPJtmSpa-a3ZKaZuGwi2xlEw_ppZzfAsBMT/exec")
+DRIVE_ID_RX = re.compile(r"^[a-zA-Z0-9_-]{20,200}$")
 TOKEN_RX = re.compile(r"^[0-9a-f]{64}$")
 EXAM_RX = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 
@@ -133,6 +136,10 @@ class AnswerBody(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict)
 
 
+class BeginBody(BaseModel):
+    classPassword: str = Field(default="", max_length=80)
+
+
 class EventBody(BaseModel):
     attemptToken: str
     eventType: str
@@ -171,6 +178,50 @@ async def classes(authorization: str | None = Header(default=None)):
     return await _mrvy("classes")
 
 
+async def _drive_text(file_id: str, *, max_chars: int = 16_000_000):
+    if not DRIVE_ID_RX.fullmatch(str(file_id or "")):
+        raise HTTPException(400, "File học liệu không hợp lệ.")
+    target = DRIVE_SCRIPT_URL if DRIVE_SCRIPT_URL.startswith("https://") else COURSE_DRIVE_URL
+    if not target.startswith("https://"):
+        raise HTTPException(503, "Chưa có máy chủ đọc học liệu Drive.")
+    async with httpx.AsyncClient(timeout=50, follow_redirects=True) as client:
+        try:
+            response = await client.get(target, params={"fileId": file_id})
+        except httpx.HTTPError as exc:
+            raise HTTPException(503, "Không tải được học liệu từ Google Drive.") from exc
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    if response.status_code != 200 or not body.get("success"):
+        raise HTTPException(503, "Google Drive chưa trả nội dung học liệu.")
+    content = body.get("content")
+    if not isinstance(content, str) or not 0 < len(content) <= max_chars:
+        raise HTTPException(503, "Học liệu trống hoặc quá dung lượng hỗ trợ.")
+    return content
+
+
+@router.get("/home/lesson/{lesson_id}/html")
+async def lesson_html(lesson_id: str, authorization: str | None = Header(default=None)):
+    student, _ = await _session(authorization)
+    if not EXAM_RX.fullmatch(lesson_id):
+        raise HTTPException(400, "Mã bài học không hợp lệ.")
+    rows = await _db("GET", "lessons", params={
+        "select": "title,drive_file_id,html_cache,show_answers",
+        "id": "eq."+lesson_id, "category": "eq.home", "is_active": "eq.true",
+        "grade": "eq."+str(student["grade"]), "limit":1,
+    })
+    if not rows:
+        raise HTTPException(403, "Bài học không thuộc khối học sinh hoặc đã khóa.")
+    row = rows[0]
+    content = row.get("html_cache") or ""
+    if not content and row.get("drive_file_id"):
+        content = await _drive_text(row["drive_file_id"])
+    if not content or "<html" not in content.lower():
+        raise HTTPException(422, "Bài học chưa có nội dung HTML hợp lệ.")
+    return {"title":row["title"],"html":content,"showAnswers":bool(row.get("show_answers"))}
+
+
 @router.get("/home/resources")
 async def resources(authorization: str | None = Header(default=None)):
     student, _ = await _session(authorization)
@@ -192,6 +243,13 @@ async def resources(authorization: str | None = Header(default=None)):
     exercises = await _db("GET", "exercises", params={"select":"id,is_active", "grade":"eq."+str(student["grade"]),"category":"eq.home"})
     active = {str(x["id"]) for x in exercises or [] if x["is_active"]}
     exams = [e for e in exams if str(e["exercise_id"]) in active]
+    # Only return a flag - never expose per-class password hashes to students.
+    for exam in exams:
+        configured = await _db("GET", "exam_class_passwords", params={
+            "select":"class_key", "exercise_id":"eq."+str(exam["exercise_id"]),
+            "limit":1,
+        })
+        exam["passwordRequired"] = bool(configured)
     return {"student":student,"lessons":lessons or [],"documents":documents or [],"exams":exams}
 
 
@@ -208,12 +266,13 @@ async def _attempt_owned(exam_id, student, attempt_token):
 
 
 @router.post("/home/exam/{exam_id}/begin")
-async def begin_exam(exam_id: str, authorization: str | None = Header(default=None)):
+async def begin_exam(exam_id: str, body: BeginBody, authorization: str | None = Header(default=None)):
     student, token = await _session(authorization)
     if not EXAM_RX.fullmatch(exam_id):
         raise HTTPException(400, "ID đề không hợp lệ.")
     return await _db("POST", "exam_home_begin", rpc=True,
-                     data={"p_exercise_id": exam_id, "p_session": token})
+                     data={"p_exercise_id": exam_id, "p_session": token,
+                           "p_class_password": body.classPassword})
 
 
 @router.get("/home/exam/{exam_id}/content")
@@ -230,20 +289,8 @@ async def exam_content(exam_id: str, authorization: str | None = Header(default=
     drive_id = (paper[0] if paper else {}).get("encrypted_drive_file_id")
     if not drive_id:
         raise HTTPException(404, "Đề đời cũ không có file Drive mã hóa.")
-    if not DRIVE_SCRIPT_URL.startswith("https://"):
-        raise HTTPException(503, "Render chưa cài MRVY_DRIVE_READ_URL.")
-    async with httpx.AsyncClient(timeout=40,follow_redirects=True) as client:
-        response=await client.get(DRIVE_SCRIPT_URL,params={"fileId":drive_id})
-    try:
-        body=response.json()
-    except ValueError:
-        body={}
-    if response.status_code!=200 or not body.get("success"):
-        raise HTTPException(503, "Không đọc lại được đề đã mã hóa trên Google Drive.")
-    content=body.get("content")
-    if not isinstance(content,str) or len(content)>16_000_000:
-        raise HTTPException(503,"File đề không đúng kích thước hỗ trợ.")
-    return {"content":content}
+    content = await _drive_text(drive_id)
+    return {"content": content}
 
 
 @router.post("/home/exam/{exam_id}/save")
@@ -285,9 +332,11 @@ async def _sync_score(exam_id, student_id, score, attempt_id, variant_index, alr
         "attempt_id": attempt_id, "student_id": student_id, "exercise_id": exam_id,
         "status": "pending", "score": score, "sent_at": None})
     try:
-        await _mrvy("score", {"studentId": student_id, "examId": exam_id,
+        acknowledged = await _mrvy("score", {"studentId": student_id, "examId": exam_id,
                                "examName": p.get("title") or "Bài kiểm tra Vzota",
                                "score": float(score), "examCode": exam_code})
+        if acknowledged.get("success") is not True:
+            return False
     except HTTPException:
         return False
     sent_at = datetime.now(timezone.utc).isoformat()
@@ -332,5 +381,49 @@ async def scores(authorization: str | None=Header(default=None)):
                 queue_by[a["id"]] = "sent"
         except HTTPException:
             pass
-    return {"scores": [{**a, "mrvySynced": bool(a.get("mrvy_synced_at")) or queue_by.get(a["id"]) == "sent"}
-                       for a in rows or []]}
+    paper_ids=sorted({str(a["exercise_id"]) for a in rows or [] if EXAM_RX.fullmatch(str(a["exercise_id"]))})
+    paper_by={}
+    if paper_ids:
+        papers=await _db("GET","exam_papers",params={
+            "select":"exercise_id,title,variants",
+            "exercise_id":"in.("+",".join(paper_ids)+")",
+        })
+        paper_by={str(p["exercise_id"]):p for p in papers or []}
+    output=[]
+    for a in rows or []:
+        p=paper_by.get(str(a["exercise_id"]),{})
+        variants=p.get("variants") or []
+        index=a.get("variant_index")
+        code=variants[index].get("code") if isinstance(index,int) and 0<=index<len(variants) else ""
+        output.append({**a,"examTitle":p.get("title") or "Bài kiểm tra",
+            "examCode":code,
+            "mrvySynced":bool(a.get("mrvy_synced_at")) or queue_by.get(a["id"])=="sent"})
+    return {"scores":output}
+
+
+@router.post("/admin/retry-scores")
+async def retry_scores(authorization: str | None = Header(default=None)):
+    await _teacher(authorization)
+    pending = await _db("GET", "exam_home_score_sync", params={
+        "select": "attempt_id,student_id,exercise_id,score",
+        "status": "eq.pending", "limit": 30,
+    })
+    sent = 0
+    failed = 0
+    for item in pending or []:
+        try:
+            attempts = await _db("GET", "exam_attempts", params={
+                "select":"id,submitted_at,variant_index,mrvy_synced_at,score",
+                "id":"eq."+str(item["attempt_id"]),"limit":1,
+            })
+            if not attempts or attempts[0].get("submitted_at") is None:
+                continue
+            a = attempts[0]
+            if await _sync_score(item["exercise_id"],item["student_id"],
+                                 a["score"],a["id"],a["variant_index"],a.get("mrvy_synced_at")):
+                sent += 1
+            else:
+                failed += 1
+        except (HTTPException, KeyError, TypeError, ValueError):
+            failed += 1
+    return {"attempted":len(pending or []),"synced":sent,"remainingOrFailed":failed}
