@@ -1841,6 +1841,7 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [examDuration, setExamDuration] = useState(80);
   const [examSession, setExamSession] = useState(null);
   const [monitorExercise, setMonitorExercise] = useState(null);
+  const [statsExercise, setStatsExercise] = useState(null);
   const [securityNotice, setSecurityNotice] = useState('');
 
 
@@ -4400,6 +4401,14 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
                 </div>
                 {isTeacher && monitorExercise && <ExamTeacherMonitor supabase={supabase} exercise={monitorExercise}
                   onClose={()=>setMonitorExercise(null)} />}
+                    
+              {isTeacher && statsExercise && (
+            <ExamClassDashboard
+                  supabase={supabase}
+                exercise={statsExercise}
+                  onClose={() => setStatsExercise(null)}
+                  />
+                  )}
               </>
             ) : (
               /* ==================== GIAO DIỆN LÀM BÀI TRỰC TUYẾN CHUẨN AZOTA ==================== */
