@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import MrvyGateway from './MrvyGateway';
 import { supabase } from './supabaseClient';
 import VzotaPanel from './VzotaPanel';
 import { parseAzotaWordFile } from './azotaWordParser';
@@ -1738,7 +1739,7 @@ function vyCheckQuizQuestions(questions, importWarnings = []) {
   return issues;
 }
 
-export default function App() {
+function CoreApp() {
   const [activeTab, setActiveTab] = useState('lessons');
   const [selectedGrade, setSelectedGrade] = useState(10);
   // Phân hệ đang chọn: 'school' (Lớp Trường) hoặc 'home' (Lớp Nhà)
@@ -1859,15 +1860,28 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
 
   // Kiểm tra phiên Giáo viên
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setIsTeacher(!!session);
-    });
+    let mounted = true;
+    let requestId = 0;
+    const verifyTeacher = async session => {
+      const id = ++requestId;
+      if (!session) {
+        if (mounted && id === requestId) setIsTeacher(false);
+        return;
+      }
+      const { data, error } = await supabase.rpc('exam_is_admin');
+      if (mounted && id === requestId) setIsTeacher(!error && data === true);
+    };
+    supabase.auth.getSession().then(({ data }) => verifyTeacher(data?.session))
+      .catch(() => { if (mounted) setIsTeacher(false); });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsTeacher(!!session);
+      setIsTeacher(false);
+      // Tách khỏi callback Auth tránh khóa phiên Supabase khi gọi RPC.
+      setTimeout(() => { if (mounted) verifyTeacher(session); }, 0);
     });
-    return () => subscription.unsubscribe();
+    return () => { mounted = false; requestId++; subscription.unsubscribe(); };
   }, []);
 
+  
   // Nếu là Học sinh đăng nhập: Khóa chặt Khối và Phân hệ (Trường/Nhà) theo tài khoản học sinh đó
   const effectiveGrade = isTeacher ? selectedGrade : (currentStudent?.grade || 10);
   const effectiveCategory = isTeacher ? selectedCategory : (currentStudent?.category || 'home');
@@ -5507,3 +5521,9 @@ Hàm số đã cho đồng biến trên khoảng nào dưới đây?
     </div>
   );
 }
+
+ // MRVY student portal ALWAYS has precedence over teacher session.
+   export default function App() {
+     return <MrvyGateway><CoreApp/></MrvyGateway>;
+   }
+
