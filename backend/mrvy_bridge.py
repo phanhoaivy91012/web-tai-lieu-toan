@@ -16,8 +16,8 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/mrvy", tags=["MRVY Bridge"])
-SB_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-SB_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SB_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SB_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 SB_ANON = os.getenv("SUPABASE_ANON_KEY", "")
 MRVY_URL = os.getenv("MRVY_BRIDGE_API_URL", "")
 BRIDGE_SECRET = os.getenv("MRVY_VZOTA_SHARED_SECRET", "")
@@ -31,6 +31,8 @@ def _configured():
         raise HTTPException(503, "Cần cấu hình Supabase B và mã kết nối MRVY trên Render.")
     if not MRVY_URL.startswith("https://"):
         raise HTTPException(503, "Địa chỉ MRVY chưa được cấu hình an toàn.")
+    if SB_KEY.startswith("sb_publishable_"):
+        raise HTTPException(503, "Đang sử dụng khóa public của Supabase. Render cần khóa secret hoặc service_role của Supabase Vzota.")
 
 
 def _parse_bearer(authorization: str | None):
@@ -50,13 +52,20 @@ async def _db(method: str, table_or_rpc: str, *, params=None, data=None, rpc=Fal
     _configured()
     prefix = "rpc/" if rpc else ""
     path = f"{SB_URL}/rest/v1/{prefix}{table_or_rpc}"
-    headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}",
-               "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=representation"}
+    # Supabase sb_secret_* là API key mới, KHÔNG phải JWT.
+    # Gửi sb_secret_* qua apikey, không đưa vào Authorization: Bearer.
+    # Legacy service_role JWT vẫn cần Authorization: Bearer như trước.
+    headers = {"apikey": SB_KEY, "Content-Type": "application/json",
+               "Prefer": "resolution=merge-duplicates,return=representation"}
+    if not SB_KEY.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {SB_KEY}"
     async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
         try:
             response = await client.request(method, path, headers=headers, params=params, json=data)
         except httpx.HTTPError as exc:
             raise HTTPException(503, "Không kết nối được Supabase Vzota.") from exc
+    if response.status_code == 401:
+        raise HTTPException(503, "Supabase Vzota từ chối khóa truy cập (401). Kiểm tra SUPABASE_URL và SUPABASE_SERVICE_ROLE_KEY thuộc cùng một dự án Supabase Vzota.")
     if response.status_code >= 400:
         raise HTTPException(503, f"Dịch vụ dữ liệu Vzota lỗi HTTP {response.status_code}.")
     try:
