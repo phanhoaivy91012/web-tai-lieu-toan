@@ -24,8 +24,10 @@ from mixer import MixError, create_variants
 from omr import grade_result, scan_image
 from word_exam import inspect_word, export_zip
 from excel_keys import export_answers_xlsx, import_answers_xlsx
+from mrvy_bridge import router as mrvy_router
 
 app = FastAPI(title='Vzota OMR API', version='0.2.0')
+app.include_router(mrvy_router)
 origins = [x.strip().rstrip('/') for x in os.getenv('ALLOWED_ORIGINS', '').split(',') if x.strip()]
 app.add_middleware(
     CORSMiddleware,
