@@ -1847,6 +1847,56 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [statsExercise, setStatsExercise] = useState(null);
   const [securityNotice, setSecurityNotice] = useState('');
 
+BƯỚC 9 - TỰ LẤY DANH SÁCH LỚP TỪ MRVY
+
+Chỉ sửa: GitHub > web-tai-lieu-toan > src > App.jsx
+
+1. Tìm dòng chú thích:
+   // Tự lưu đáp án; khi có mạng lại sẽ thử gửi lại bộ trả lời gần nhất.
+
+2. Dán NGUYÊN đoạn dưới đây NGAY PHÍA TRÊN dòng chú thích đó. Không xóa dòng cũ.
+
+  // Chỉ đồng bộ TÊN LỚP MRVY, không sao chép danh sách học sinh.
+  useEffect(() => {
+    if (!isTeacher || uploadCategory !== 'home') {
+      setMrvyClasses([]);
+      setMrvyClassError('');
+      return;
+    }
+    let live = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error || !data?.session?.access_token) throw new Error('Phiên giáo viên đã hết hạn.');
+        const api = (import.meta.env.VITE_VZOTA_API_URL || 'https://vzota-api.onrender.com').replace(/\/$/, '');
+        const res = await fetch(`${api}/api/mrvy/classes`, {
+          headers: { Authorization: `Bearer ${data.session.access_token}` }
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || 'Không lấy được danh sách lớp từ MRVY.');
+        const names = [...new Set((Array.isArray(body.classes) ? body.classes : [])
+          .filter(c => Number(c.grade) === Number(selectedGrade))
+          .map(c => String(c.class_name || '').replace(/\s+/g, '').toUpperCase())
+          .filter(Boolean))].sort().slice(0, 3);
+        if (live) {
+          setMrvyClasses(names);
+          setMrvyClassError(names.length ? '' : 'MRVY chưa có lớp ở khối này.');
+        }
+      } catch (err) {
+        if (live) {
+          setMrvyClasses([]);
+          setMrvyClassError(err.message);
+        }
+      }
+    })();
+    return () => { live = false; };
+  }, [isTeacher, uploadCategory, selectedGrade]);
+
+3. Commit changes. Kiểm tra Vercel báo Ready.
+
+KHÔNG sửa giao diện giao đề, SQL, Render hoặc MRVY ở bước này.
+Bước sau sẽ hiển thị các lớp trong giao diện và kiểm tra lớp hợp lệ khi giao đề.
+Chưa giao đề thử cho học sinh thật.
 
   // Tự lưu đáp án; khi có mạng lại sẽ thử gửi lại bộ trả lời gần nhất.
   useEffect(() => {
