@@ -1847,15 +1847,6 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [statsExercise, setStatsExercise] = useState(null);
   const [securityNotice, setSecurityNotice] = useState('');
 
-BƯỚC 9 - TỰ LẤY DANH SÁCH LỚP TỪ MRVY
-
-Chỉ sửa: GitHub > web-tai-lieu-toan > src > App.jsx
-
-1. Tìm dòng chú thích:
-   // Tự lưu đáp án; khi có mạng lại sẽ thử gửi lại bộ trả lời gần nhất.
-
-2. Dán NGUYÊN đoạn dưới đây NGAY PHÍA TRÊN dòng chú thích đó. Không xóa dòng cũ.
-
   // Chỉ đồng bộ TÊN LỚP MRVY, không sao chép danh sách học sinh.
   useEffect(() => {
     if (!isTeacher || uploadCategory !== 'home') {
@@ -1892,11 +1883,6 @@ Chỉ sửa: GitHub > web-tai-lieu-toan > src > App.jsx
     return () => { live = false; };
   }, [isTeacher, uploadCategory, selectedGrade]);
 
-3. Commit changes. Kiểm tra Vercel báo Ready.
-
-KHÔNG sửa giao diện giao đề, SQL, Render hoặc MRVY ở bước này.
-Bước sau sẽ hiển thị các lớp trong giao diện và kiểm tra lớp hợp lệ khi giao đề.
-Chưa giao đề thử cho học sinh thật.
 
   // Tự lưu đáp án; khi có mạng lại sẽ thử gửi lại bộ trả lời gần nhất.
   useEffect(() => {
