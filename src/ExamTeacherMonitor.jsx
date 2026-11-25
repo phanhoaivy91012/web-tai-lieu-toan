@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+const API = (import.meta.env.VITE_VZOTA_API_URL || 'https://vzota-api.onrender.com').replace(/\/$/, '');
 
 const label = {
   TAB_HIDDEN: 'Rời tab / chuyển ứng dụng', WINDOW_BLUR: 'Mất tập trung',
@@ -16,6 +17,26 @@ export default function ExamTeacherMonitor({ supabase, exercise, onClose }) {
   const [finalizing,setFinalizing] = useState(false);
   const [lastFinalized,setLastFinalized] = useState('');
   const [now, setNow] = useState(Date.now());
+  const [refreshKey,setRefreshKey] = useState(0);
+  const [deletingId,setDeletingId] = useState(null);
+  const [deleteMessage,setDeleteMessage] = useState('');
+  async function deleteSubmission(a) {
+    if (!a.submitted_at || deletingId) return;
+    if (!window.confirm(`XÓA BÀI ĐÃ NỘP của ${a.student_name} (${a.student_code})?\n\nĐiểm trên Vzota và MRVY (nếu là học sinh nhà) sẽ bị xóa. Học sinh có thể làm lại khi đề còn mở. KHÔNG THỂ HOÀN TÁC.`)) return;
+    setDeletingId(a.id); setDeleteMessage('');
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data?.session?.access_token) throw Error('Bạn cần đăng nhập giáo viên.');
+      const res = await fetch(API + '/api/mrvy/admin/attempts/' + encodeURIComponent(a.id), {
+        method: 'DELETE', headers: { Authorization: 'Bearer ' + data.session.access_token }
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.success !== true) throw Error(body.detail || body.error || 'Xóa chưa thành công.');
+      setDeleteMessage(`Đã xóa bài của ${a.student_name}. ${body.mrvyScoreDeleted?'Điểm MRVY đã được xác nhận xóa.':'Không có điểm MRVY cần xóa.'}`);
+      setRefreshKey(v => v + 1);
+    } catch (e) { setDeleteMessage('Chưa xóa hoàn tất: ' + e.message); }
+    finally { setDeletingId(null); }
+  }
   useEffect(() => {
     let live = true;
     async function reload() {
@@ -34,7 +55,7 @@ export default function ExamTeacherMonitor({ supabase, exercise, onClose }) {
     reload();
     const timer = setInterval(reload, 8000);
     return () => { live = false; clearInterval(timer); };
-  }, [exercise.id, supabase]);
+  }, [exercise.id, supabase, refreshKey]);
   const names = useMemo(() => Object.fromEntries(attempts.map(a => [a.id,a])),[attempts]);
   const active = attempts.filter(a => !a.submitted_at && new Date(a.deadline_at).getTime() > now).length;
   return <div className="rounded-2xl bg-white border-2 border-blue-200 p-4 space-y-3">
@@ -55,11 +76,18 @@ export default function ExamTeacherMonitor({ supabase, exercise, onClose }) {
     </div>
     {error && <p className="text-rose-700">Không tải được nhật ký: {error}. Kiểm tra quyền giáo viên và SQL.</p>}
     {lastFinalized && <p className="text-xs text-blue-800">{lastFinalized}</p>}
+    {deleteMessage && <p className="text-xs text-blue-800 font-semibold">{deleteMessage}</p>}
     <div className="font-bold text-sm">Đang làm: {active} · Đã nộp: {attempts.filter(x=>x.submitted_at).length} · Tổng lượt thi: {attempts.length}</div>
-    <div className="overflow-x-auto max-h-72 overflow-y-auto"><table className="w-full text-xs text-left"><thead><tr className="bg-slate-100"><th className="p-2">Học sinh</th><th className="p-2">Lớp</th><th className="p-2">Trạng thái</th><th className="p-2">Cảnh báo</th><th className="p-2">Điểm</th></tr></thead>
+    <div className="overflow-x-auto max-h-72 overflow-y-auto"><table className="w-full text-xs text-left"><thead><tr className="bg-slate-100"><th className="p-2">Học sinh</th><th className="p-2">Lớp</th><th className="p-2">Trạng thái</th><th className="p-2">Cảnh báo</th><th className="p-2">Điểm</th><th className="p-2">Thao tác</th></tr></thead>
       <tbody>{attempts.map(a=><tr key={a.id} className="border-b"><td className="p-2">{a.student_code} – {a.student_name}</td><td className="p-2">{a.class_name}</td>
         <td className="p-2">{a.submitted_at?'Đã nộp':new Date(a.deadline_at).getTime() <= now?'Hết giờ':'Đang làm'}</td>
-        <td className="p-2 text-orange-800 font-bold">{a.events_count}</td><td className="p-2">{a.score ?? '—'}</td></tr>)}</tbody>
+        <td className="p-2 text-orange-800 font-bold">{a.events_count}</td><td className="p-2">{a.score ?? '—'}</td><td className="p-2">
+          <button disabled={!a.submitted_at || !!deletingId} onClick={()=>deleteSubmission(a)}
+           className="rounded-lg bg-rose-100 text-rose-800 font-bold px-2 py-1 disabled:opacity-40"
+           title="Xóa lượt thi này và điểm đã đồng bộ về MRVY">
+            {deletingId===a.id?'Đang xóa…':'Xóa bài'}
+          </button>
+        </td></tr>)}</tbody>
     </table></div>
     <h4 className="font-bold text-sm">Nhật ký gần nhất</h4>
     <div className="max-h-72 overflow-y-auto space-y-1">{events.filter(e=>e.event_type!=='HEARTBEAT').map(e=><div key={e.id} className="text-xs border-b p-2 flex flex-wrap gap-2">
