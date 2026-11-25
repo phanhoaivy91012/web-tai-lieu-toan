@@ -3273,6 +3273,18 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
   const auditIssues = vyCheckQuizQuestions(importQuestions, quizImportWarnings);
   const updateText = (i, key, value) => updateWordQuiz(i, q => ({...q,[key]:value}));
 
+
+  
+const examClassOptions = uploadCategory === 'home'
+  ? mrvyClasses.slice(0, 3)
+  : [...new Set(
+      studentsList
+        .filter(s => Number(s.grade) === Number(selectedGrade) && s.category === 'school')
+        .map(s => s.class_name?.trim())
+        .filter(Boolean)
+    )].sort().slice(0, 3);
+
+  
   const addExercise = async () => {
     if (quizBusy) return; // Chống gửi trùng khi thao tác đang thực hiện.
     if (!newTitle.trim() || (!wordQuizQuestions?.length && !rawQuizText.trim())) {
@@ -3285,8 +3297,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
     if (!quizConfirmed) return alert('Hãy đối chiếu bản xem trước và đáp án với Word gốc rồi xác nhận trước khi giao.');
     if (!parsedQuestions.length) return alert('Không nhận diện được câu hỏi nào.');
 
-    const validClasses = new Set(studentsList.filter(st => Number(st.grade)===Number(selectedGrade)
-      && st.category===uploadCategory).map(st => st.class_name?.trim()).filter(Boolean));
+    const validClasses = new Set(examClassOptions);
     const classes = assignedClasses.filter(cls => validClasses.has(cls));
     if (!classes.length) return alert('Hãy chọn ít nhất một lớp hợp lệ trong đúng khối và phân hệ.');
     const settings = {mix:quizMixEnabled, variantCount:Number(quizVariantCount), shuffleOptions:quizShuffleOptions,
@@ -4246,8 +4257,7 @@ Hãy đọc chính xác nội dung Toán học trong ảnh và xuất ra định
                     <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-3 space-y-2">
                       <h4 className="font-extrabold text-blue-900 text-sm">Giao đề theo lớp (bắt buộc)</h4>
                       <div className="flex flex-wrap gap-2">
-                        {[...new Set(studentsList.filter(s=>Number(s.grade)===Number(selectedGrade) && s.category===uploadCategory)
-                          .map(s=>s.class_name?.trim()).filter(Boolean))].sort().map(cls=>(
+                        {examClassOptions.map(cls=>(
                           <label key={cls} className="flex items-center gap-2 bg-white border px-3 py-2 rounded-lg text-xs font-bold">
                             <input type="checkbox" checked={assignedClasses.includes(cls)}
                               onChange={e=>{setAssignedClasses(prev=>e.target.checked?[...prev,cls]:prev.filter(x=>x!==cls));setQuizConfirmed(false);}}/>
