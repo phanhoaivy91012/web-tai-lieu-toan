@@ -1837,7 +1837,10 @@ Lời giải: Hai vectơ bằng nhau có chung điểm đầu A thì điểm cu�
   const [quizExamCode, setQuizExamCode] = useState('');
   const [quizBusy, setQuizBusy] = useState(false);
   const [quizFolderNotice, setQuizFolderNotice] = useState('');
-  const [assignedClasses, setAssignedClasses] = useState([]);
+  const [assignedClasses, setAssignedClasses] = useState([]);  
+  const [mrvyClasses, setMrvyClasses] = useState([]);
+  const [mrvyClassError, setMrvyClassError] = useState('');
+  const [maxExamAttempts, setMaxExamAttempts] = useState(1);  
   const [examDuration, setExamDuration] = useState(80);
   const [examSession, setExamSession] = useState(null);
   const [monitorExercise, setMonitorExercise] = useState(null);
