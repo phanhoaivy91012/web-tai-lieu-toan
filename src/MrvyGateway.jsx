@@ -62,6 +62,7 @@ function HomeStudentPortal({auth,onExit}){
   const {token,student}=auth;
   const [data,setData]=useState({lessons:[],documents:[],exams:[]});
   const [scores,setScores]=useState([]);
+  const [reviews,setReviews]=useState({});
   const [tab,setTab]=useState('lessons');
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
@@ -149,15 +150,39 @@ function HomeStudentPortal({auth,onExit}){
     },750);
     return()=>clearTimeout(id);
   },[answers,exam,score,token]);
+  async function viewAnswers(s){
+    if(!s.showAnswers||!s.reviewToken)return;
+    try{
+      const result=await request(token,`/api/mrvy/home/exam/${encodeURIComponent(s.exercise_id)}/review`,{
+        method:'POST',body:JSON.stringify({attemptToken:s.reviewToken,answers:{}})
+      });
+      const lines=(result.answers||[]).map((q,i)=>{
+        if(q.type==='tf')return `Câu ${i+1}: ${(q.statements||[]).map(st=>st.isTrue?'Đ':'S').join(' · ')}`;
+        if(q.type==='short')return `Câu ${i+1}: ${q.shortAnswer??'—'}`;
+        return `Câu ${i+1}: ${'ABCD'[Number(q.correct)]||'—'}`;
+      });
+      setReviews(prev=>({...prev,[s.id]:lines.join('\n')||'Chưa có đáp án.'}));
+    }catch(e){setError('Chưa xem được đáp án: '+e.message);}
+  }
   async function openExam(item){
     if(sending)return;
+    const past=scores.filter(s=>String(s.exercise_id)===String(item.exercise_id));
+    const limit=Number(item.max_attempts||1);
+    let retake=false;
+    if(past.length>=limit){
+      setError(`Em đã sử dụng ${past.length}/${limit} lượt. Không thể làm thêm.`);return;
+    }
+    if(past.length){
+      if(!window.confirm(`Em đã thi ${past.length} lần. Bắt đầu lượt ${past.length+1}/${limit}? Lượt này vẫn tính thời gian mới.`))return;
+      retake=true;
+    }
     const pw=item.passwordRequired?window.prompt(`Mật khẩu bài kiểm tra dành riêng cho lớp ${student.className}:`):'';
     if(item.passwordRequired&&pw===null)return;
     if(item.passwordRequired&&(!pw||pw.length<4)){setError('Mật khẩu riêng của lớp phải có ít nhất 4 ký tự.');return;}
     setLoading(true);setError('');setNotice('');
     try{
       const result=await request(token,`/api/mrvy/home/exam/${encodeURIComponent(item.exercise_id)}/begin`,{
-        method:'POST',body:JSON.stringify({classPassword:pw||''})});
+        method:'POST',body:JSON.stringify({classPassword:pw||'',retake})});
       let content=result.questions||[];
       if(result.driveFileId){
         const payload=await request(token,`/api/mrvy/home/exam/${encodeURIComponent(item.exercise_id)}/content`);
@@ -168,7 +193,7 @@ function HomeStudentPortal({auth,onExit}){
       setAnswers(result.answers||{});
       setDeadline(result.deadlineAt);
       setScore(result.submitted?(result.score??0):null);
-      setExam({id:item.exercise_id,title:item.title,code:result.examCode,attemptToken:result.attemptToken});
+      setExam({id:item.exercise_id,title:item.title,code:result.examCode,attemptToken:result.attemptToken,attemptNo:result.attemptNo||1});
       setTab('exams');
     }catch(e){setError(e.message);}finally{setLoading(false);}
   }
@@ -239,7 +264,7 @@ function HomeStudentPortal({auth,onExit}){
       {tab==='exams'&&(exam?<div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-white p-4 shadow-sm">
           <button className="rounded-lg border px-3 py-2 text-sm" onClick={()=>{if(score===null&&!window.confirm('Thoát màn hình làm bài? Thời gian vẫn tiếp tục chạy.'))return;setExam(null);refresh();}}>← Danh sách</button>
-          <b className="text-lg text-blue-900">{exam.title} • Mã đề {exam.code}</b>
+          <b className="text-lg text-blue-900">{exam.title} • Lần {exam.attemptNo} • Mã đề {exam.code}</b>
           <b className="ml-auto text-rose-700">{score!==null?'Đã nộp':`${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')}`}</b>
         </div>
         {score!==null&&<div className="rounded-xl bg-emerald-100 p-5 text-center text-xl font-black text-emerald-800">Điểm: {score} / 10</div>}
@@ -262,16 +287,18 @@ function HomeStudentPortal({auth,onExit}){
         <h2 className="font-black text-blue-900">📝 ĐỀ KIỂM TRA ĐÃ GIAO CHO LỚP {student.className}</h2>
         {(data.exams||[]).map(e=><article key={e.exercise_id}
           className="flex flex-wrap items-center gap-3 rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="flex-1"><b className="text-lg">{e.title}</b><p className="text-sm text-slate-500">{e.duration_minutes} phút • Lớp {student.className} {e.passwordRequired?'• Cần mật khẩu lớp':''}</p></div>
+          <div className="flex-1"><b className="text-lg">{e.title}</b><p className="text-sm text-slate-500">{e.duration_minutes} phút • Lớp {student.className} • Tối đa {e.max_attempts||1} lượt {e.passwordRequired?'• Cần mật khẩu lớp':''}</p></div>
           <button onClick={()=>openExam(e)} className={BTN}>Vào làm bài</button></article>)}
         {!(data.exams||[]).length&&<p className="rounded-xl bg-white p-8 text-center">Chưa có đề giao cho lớp này.</p>}
       </div>)}
       {tab==='scores'&&<section className="rounded-2xl border bg-white p-5 shadow-sm">
         <h2 className="mb-4 font-black text-blue-900">🏆 ĐIỂM KIỂM TRA</h2>
         {(scores||[]).map((s,i)=><div key={i} className="flex flex-wrap justify-between gap-3 border-b py-3 text-sm">
-          <b>{s.examTitle||'Bài kiểm tra'} • Mã đề {s.examCode||'—'}</b>
-          <b className="text-blue-700">{s.score}/10</b>
+          <b>{s.examTitle||'Bài kiểm tra'} • Lần {s.attempt_no||1} • Mã đề {s.examCode||'—'}</b>
+          <b className="text-blue-700">{s.score}/10 <span className="text-xs text-emerald-700">(Cao nhất: {s.bestScore ?? s.score})</span></b>
           <span className={s.mrvySynced?'text-emerald-700':'text-amber-700'}>{s.mrvySynced?'Đã ghi nhận ở MRVY':'Chờ đồng bộ MRVY'}</span>
+          {s.showAnswers&&s.reviewToken&&<button className="rounded-lg border px-3 py-1 text-xs" onClick={()=>viewAnswers(s)}>Xem đáp án</button>}
+          {reviews[s.id]&&<pre className="w-full whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs">{reviews[s.id]}</pre>}
         </div>)}
         {!scores.length&&<p>Chưa có điểm.</p>}
       </section>}
