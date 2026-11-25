@@ -138,6 +138,7 @@ class AnswerBody(BaseModel):
 
 class BeginBody(BaseModel):
     classPassword: str = Field(default="", max_length=80)
+    retake: bool = False
 
 
 class EventBody(BaseModel):
@@ -230,7 +231,7 @@ async def resources(authorization: str | None = Header(default=None)):
     lessons = await _db("GET", "lessons", params=params)
     documents = await _db("GET", "documents", params=params)
     exams = await _db("GET", "exam_papers", params={
-        "select": "exercise_id,title,assigned_classes,duration_minutes",
+        "select": "exercise_id,title,assigned_classes,duration_minutes,max_attempts,show_answers",
         "grade": "eq." + str(student["grade"]), "category": "eq.home"
     })
     def _class_key(text):
@@ -272,7 +273,7 @@ async def begin_exam(exam_id: str, body: BeginBody, authorization: str | None = 
         raise HTTPException(400, "ID đề không hợp lệ.")
     return await _db("POST", "exam_home_begin", rpc=True,
                      data={"p_exercise_id": exam_id, "p_session": token,
-                           "p_class_password": body.classPassword})
+                           "p_class_password": body.classPassword,"p_retake": body.retake})
 
 
 @router.get("/home/exam/{exam_id}/content")
@@ -309,14 +310,37 @@ async def log_event(exam_id: str, body: EventBody, authorization: str | None = H
       data={"p_token":body.attemptToken,"p_type":body.eventType,"p_detail":body.detail})}
 
 
-async def _sync_score(exam_id, student_id, score, attempt_id, variant_index, already_synced_at=None):
+async def _sync_best_score(exam_id: str, student_id: str, force: bool = False):
+    """Only send highest non-deleted attempt; never replay a lower pending score."""
+    rows = await _db("GET", "exam_attempts", params={
+        "select": "id,score,variant_index,mrvy_synced_at,attempt_no",
+        "exercise_id": "eq." + str(exam_id),
+        "student_code": "eq.MRVY:" + str(student_id),
+        "submitted_at": "not.is.null", "score": "not.is.null",
+        "order": "score.desc,submitted_at.asc", "limit": 5,
+    })
+    if not rows:
+        return False
+    best = rows[0]
+    # Any older pending retries are irrelevant once the best exists.
+    await _db("DELETE", "exam_home_score_sync", params={
+        "exercise_id": "eq." + str(exam_id),
+        "student_id": "eq." + str(student_id),
+        "status": "eq.pending", "attempt_id": "neq." + str(best["id"]),
+    })
+    return await _sync_score(exam_id, student_id, best["score"], best["id"],
+                             best["variant_index"],
+                             None if force else best.get("mrvy_synced_at"), force=force)
+
+
+async def _sync_score(exam_id, student_id, score, attempt_id, variant_index, already_synced_at=None, force=False):
     # Giữ marker lâu dài trên lượt làm bài; không gửi lại điểm chỉ vì hàng đợi
     # "sent" đã được tự dọn sau 90 ngày.
-    if already_synced_at:
+    if already_synced_at and not force:
         return True
     previous = await _db("GET", "exam_home_score_sync", params={
         "select": "status,sent_at", "attempt_id": "eq." + str(attempt_id), "limit": 1})
-    if previous and previous[0].get("status") == "sent":
+    if previous and previous[0].get("status") == "sent" and not force:
         await _db("PATCH", "exam_attempts", params={"id": "eq." + str(attempt_id)},
                   data={"mrvy_synced_at": previous[0].get("sent_at") or datetime.now(timezone.utc).isoformat()})
         return True
@@ -334,7 +358,8 @@ async def _sync_score(exam_id, student_id, score, attempt_id, variant_index, alr
     try:
         acknowledged = await _mrvy("score", {"studentId": student_id, "examId": exam_id,
                                "examName": p.get("title") or "Bài kiểm tra Vzota",
-                               "score": float(score), "examCode": exam_code})
+                               "score": float(score), "examCode": exam_code,
+                               "attemptId": str(attempt_id)})
         if acknowledged.get("success") is not True:
             return False
     except HTTPException:
@@ -357,7 +382,7 @@ async def submit_exam(exam_id: str,body:AnswerBody,authorization: str | None=Hea
     fresh=await _attempt_owned(exam_id,student,body.attemptToken)
     if fresh.get("score") is None:
         raise HTTPException(503,"Bài chưa được ghi điểm trong Supabase.")
-    synced=await _sync_score(exam_id,student["mrvy_student_id"],fresh["score"],fresh["id"],fresh["variant_index"],fresh.get("mrvy_synced_at"))
+    synced=await _sync_best_score(exam_id,student["mrvy_student_id"])
     return {**(result or {}),"mrvySynced":synced}
 
 
@@ -365,30 +390,34 @@ async def submit_exam(exam_id: str,body:AnswerBody,authorization: str | None=Hea
 async def scores(authorization: str | None=Header(default=None)):
     student,_=await _session(authorization)
     rows=await _db("GET","exam_attempts",params={
-        "select":"id,exercise_id,score,variant_index,submitted_at,mrvy_synced_at",
+        "select":"id,attempt_token,exercise_id,score,variant_index,attempt_no,submitted_at,mrvy_synced_at",
         "student_code":"eq.MRVY:"+student["mrvy_student_id"],
         "submitted_at":"not.is.null", "order":"submitted_at.desc","limit":100})
     queue=await _db("GET","exam_home_score_sync",params={
         "select":"attempt_id,status","student_id":"eq."+student["mrvy_student_id"]})
     queue_by={q["attempt_id"]:q["status"] for q in queue or []}
-    for a in rows or []:
-        if a.get("mrvy_synced_at") or queue_by.get(a["id"]) == "sent":
-            queue_by[a["id"]] = "sent"
-            continue
+    for exam_id in sorted({str(x["exercise_id"]) for x in rows or []}):
         try:
-            if await _sync_score(a["exercise_id"], student["mrvy_student_id"],
-                                 a["score"], a["id"], a["variant_index"]):
-                queue_by[a["id"]] = "sent"
+            await _sync_best_score(exam_id, student["mrvy_student_id"])
         except HTTPException:
             pass
     paper_ids=sorted({str(a["exercise_id"]) for a in rows or [] if EXAM_RX.fullmatch(str(a["exercise_id"]))})
     paper_by={}
     if paper_ids:
         papers=await _db("GET","exam_papers",params={
-            "select":"exercise_id,title,variants",
+            "select":"exercise_id,title,variants,show_answers",
             "exercise_id":"in.("+",".join(paper_ids)+")",
         })
         paper_by={str(p["exercise_id"]):p for p in papers or []}
+    best_by={}
+    for row in rows or []:
+        eid=str(row["exercise_id"])
+        best_by[eid]=max(float(row["score"] or 0), best_by.get(eid,0.0))
+    active_exams=set()
+    if paper_ids:
+        active_rows=await _db("GET","exercises",params={
+            "select":"id,is_active","id":"in.("+",".join(paper_ids)+")"})
+        active_exams={str(x["id"]) for x in active_rows or [] if x.get("is_active")}
     output=[]
     for a in rows or []:
         p=paper_by.get(str(a["exercise_id"]),{})
@@ -396,9 +425,20 @@ async def scores(authorization: str | None=Header(default=None)):
         index=a.get("variant_index")
         code=variants[index].get("code") if isinstance(index,int) and 0<=index<len(variants) else ""
         output.append({**a,"examTitle":p.get("title") or "Bài kiểm tra",
-            "examCode":code,
+            "examCode":code,"bestScore":best_by.get(str(a["exercise_id"]),0),
+            "showAnswers":bool(p.get("show_answers")) and str(a["exercise_id"]) not in active_exams,
+            "reviewToken":a.get("attempt_token") if p.get("show_answers") and str(a["exercise_id"]) not in active_exams else None,
             "mrvySynced":bool(a.get("mrvy_synced_at")) or queue_by.get(a["id"])=="sent"})
     return {"scores":output}
+
+
+@router.post("/home/exam/{exam_id}/review")
+async def review_exam(exam_id: str, body: AnswerBody,
+                      authorization: str | None = Header(default=None)):
+    student, _ = await _session(authorization)
+    await _attempt_owned(exam_id,student,body.attemptToken)
+    return await _db("POST","exam_reveal_review",rpc=True,
+                     data={"p_token":body.attemptToken})
 
 
 @router.post("/admin/retry-scores")
@@ -419,11 +459,64 @@ async def retry_scores(authorization: str | None = Header(default=None)):
             if not attempts or attempts[0].get("submitted_at") is None:
                 continue
             a = attempts[0]
-            if await _sync_score(item["exercise_id"],item["student_id"],
-                                 a["score"],a["id"],a["variant_index"],a.get("mrvy_synced_at")):
+            if await _sync_best_score(item["exercise_id"],item["student_id"]):
                 sent += 1
             else:
                 failed += 1
         except (HTTPException, KeyError, TypeError, ValueError):
             failed += 1
     return {"attempted":len(pending or []),"synced":sent,"remainingOrFailed":failed}
+
+
+@router.delete("/admin/attempts/{attempt_id}")
+async def admin_delete_attempt(attempt_id: str, authorization: str | None = Header(default=None)):
+    """Teacher-only: revoke MRVY score first, then atomically remove Vzota attempt.
+
+    If MRVY cannot confirm deletion, nothing is deleted on Vzota.
+    If the second step fails, the MRVY tombstone blocks any delayed score retry;
+    the teacher may safely retry the same deletion.
+    """
+    await _teacher(authorization)
+    try:
+        from uuid import UUID
+        attempt_uuid = str(UUID(attempt_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "Mã lượt làm bài không hợp lệ.")
+    rows = await _db("GET", "exam_attempts", params={
+        "select": "id,exercise_id,student_code,student_name,submitted_at",
+        "id": "eq." + attempt_uuid, "limit": 1
+    })
+    if not rows:
+        raise HTTPException(404, "Lượt làm bài đã được xóa hoặc không tồn tại.")
+    attempt = rows[0]
+    if not attempt.get("submitted_at"):
+        raise HTTPException(409, "Chỉ xóa lượt đã nộp, không xóa lượt đang làm.")
+    code = str(attempt["student_code"])
+    if code.startswith("MRVY:"):
+        student_id = code[len("MRVY:"):]
+        if not re.fullmatch(r"\d{1,12}", student_id):
+            raise HTTPException(409, "Không xác định được mã học sinh MRVY.")
+        # MUST confirm MRVY revoked the score before clearing Vzota.
+        mrvy = await _mrvy("delete_score", {
+            "studentId": student_id, "examId": str(attempt["exercise_id"]),
+            "attemptId": attempt_uuid
+        })
+        if mrvy.get("success") is not True:
+            raise HTTPException(503, "MRVY chưa xác nhận xóa điểm. Bài Vzota vẫn được giữ.")
+    result = await _db("POST", "exam_admin_delete_attempt", rpc=True,
+                       data={"p_attempt_id": attempt_uuid})
+    if not result or result.get("success") is not True:
+        raise HTTPException(503, "Chưa xác nhận xóa bài Vzota. Có thể thử xóa lại.")
+    best_restored = None
+    if code.startswith("MRVY:"):
+        # MRVY delete_score clears old official score; rebuild from remaining attempts.
+        # force=True is necessary because remaining best may have been synced before.
+        try:
+            best_restored = await _sync_best_score(
+                str(attempt["exercise_id"]), student_id, force=True)
+        except HTTPException:
+            best_restored = False
+    return {"success": True, "studentCode": code,
+            "mrvyScoreDeleted": code.startswith("MRVY:"),
+            "mrvyBestRecalculated": best_restored,
+            "deletedSubmissions": result.get("deletedSubmissions", 0)}
