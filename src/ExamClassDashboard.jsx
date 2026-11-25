@@ -10,7 +10,8 @@ export default function ExamClassDashboard({ supabase, exercise, onClose }) {
   const [passwords, setPasswords] = useState({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const classes = (exercise?.assigned_classes || []).slice(0, 2);
+  const [maxAttempts,setMaxAttempts] = useState(1);
+  const classes = (report?.classes || []).map(c=>c.className).slice(0, 3);
   async function reload() {
     if (!exercise) return;
     setBusy(true); setMessage('');
@@ -18,13 +19,13 @@ export default function ExamClassDashboard({ supabase, exercise, onClose }) {
       p_exercise_id: String(exercise.id),
     });
     if (error) setMessage('Chưa đọc được thống kê: ' + error.message);
-    else setReport(data);
+    else {setReport(data);setMaxAttempts(Number(data?.maxAttempts||1));}
     setBusy(false);
   }
   useEffect(() => { reload(); }, [exercise?.id]);
   async function savePasswords() {
     const payload = {};
-    if (!classes.length || classes.length > 2) return setMessage('Chỉ hỗ trợ chọn 1 hoặc 2 lớp.');
+    if (!classes.length || classes.length > 3) return setMessage('Chỉ hỗ trợ chọn từ 1 đến 3 lớp.');
     for (const cls of classes) {
       const secret = String(passwords[normalizeClass(cls)] || '');
       if (secret.length < 4 || secret.length > 80) return setMessage('Mỗi lớp cần mật khẩu riêng từ 4–80 ký tự.');
@@ -38,6 +39,25 @@ export default function ExamClassDashboard({ supabase, exercise, onClose }) {
     if (error) return setMessage('Chưa đặt mật khẩu: ' + error.message);
     setPasswords({});
     setMessage('Đã đặt mật khẩu riêng. Học sinh phải nhập mật khẩu lớp trước khi làm bài.');
+  }
+  async function saveAttempts(){
+    setBusy(true);setMessage('');
+    const {error}=await supabase.rpc('exam_set_max_attempts',{
+      p_exercise_id:String(exercise.id),p_max:Number(maxAttempts)
+    });
+    setBusy(false);
+    setMessage(error?'Không đổi được số lượt: '+error.message:'Đã lưu số lượt làm bài.');
+    if(!error)await reload();
+  }
+  async function revealAnswers(){
+    if(!window.confirm('Chỉ công bố đáp án SAU khi đã đóng đề, tránh lộ cho học sinh đang thi. Tiếp tục?'))return;
+    setBusy(true);setMessage('');
+    const {error}=await supabase.rpc('exam_set_reveal',{
+      p_exercise_id:String(exercise.id),p_show:true
+    });
+    setBusy(false);
+    setMessage(error?'Không công bố được: '+error.message:'Đã cho xem đáp án sau khi đóng đề.');
+    if(!error)await reload();
   }
   async function retryScores() {
     setBusy(true);setMessage('');
@@ -56,8 +76,8 @@ export default function ExamClassDashboard({ supabase, exercise, onClose }) {
   }
   function exportCSV() {
     if(!report) return;
-    const rows = [ ['Mã học sinh','Họ tên','Lớp','Mã đề','Điểm','Đã nộp','Số cảnh báo','Đã gửi MRVY'],
-      ...(report.students || []).map(x => [x.studentCode,x.studentName,x.className,x.examCode,x.score ?? '',x.submittedAt || '',x.incidents || 0,x.mrvySynced ? 'Có' : 'Chưa']) ];
+    const rows = [ ['Mã học sinh','Họ tên','Lớp','Lần thi','Mã đề','Điểm','Cao nhất','Đã nộp','Số cảnh báo','Đã gửi MRVY'],
+      ...(report.students || []).map(x => [x.studentCode,x.studentName,x.className,x.attemptNo||1,x.examCode,x.score ?? '',x.bestScore??'',x.submittedAt || '',x.incidents || 0,x.mrvySynced ? 'Có' : 'Chưa']) ];
     const esc = x => '"' + String(x ?? '').replace(/"/g, '""') + '"';
     const csv = '\uFEFF' + rows.map(r => r.map(esc).join(',')).join('\r\n');
     const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
@@ -70,6 +90,16 @@ export default function ExamClassDashboard({ supabase, exercise, onClose }) {
       <div className="flex items-center justify-between"><h2 className="text-xl font-black text-blue-900">Thống kê và mật khẩu theo lớp – {exercise?.title}</h2>
         <button onClick={onClose} className="rounded-lg border px-4 py-2">Đóng</button></div>
       {message&&<p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">{message}</p>}
+      <section className="rounded-xl border p-4 space-y-3">
+        <h3 className="font-bold">Số lượt thi & đáp án</h3>
+        <div className="flex flex-wrap gap-3 items-center">
+          <select value={maxAttempts} onChange={e=>setMaxAttempts(Number(e.target.value))}
+            className="rounded border px-3 py-2"><option value={1}>1 lượt (mặc định)</option><option value={2}>2 lượt</option></select>
+          <button disabled={busy} onClick={saveAttempts} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white">Lưu số lượt</button>
+          <button disabled={busy||report?.showAnswers} onClick={revealAnswers} className="rounded-lg border px-3 py-2 text-sm font-bold">Công bố đáp án sau khi đóng đề</button>
+        </div>
+        <p className="text-xs text-slate-500">Chỉ đổi số lượt khi chưa ai bắt đầu. Không hiện đáp án khi đề còn mở. MRVY chỉ nhận điểm cao nhất.</p>
+      </section>
       <section className="rounded-xl border p-4">
         <h3 className="mb-3 font-bold">Mật khẩu riêng cho từng lớp</h3>
         <div className="grid gap-3 sm:grid-cols-2">{classes.map(cls=><label key={cls} className="text-sm font-bold">Lớp {cls}
@@ -91,8 +121,8 @@ export default function ExamClassDashboard({ supabase, exercise, onClose }) {
         </table></div>
         <h4 className="font-bold">Chi tiết từng học sinh (tối đa 500 lượt)</h4>
         <div className="max-h-[360px] overflow-auto"><table className="w-full text-left text-xs">
-          <thead><tr className="bg-slate-100">{['Mã HS','Họ tên','Lớp','Mã đề','Điểm','Nộp lúc','Cảnh báo','MRVY'].map(h=><th key={h} className="border p-2">{h}</th>)}</tr></thead>
-          <tbody>{(report?.students||[]).map((x,i)=><tr key={i}>{[x.studentCode,x.studentName,x.className,x.examCode||'—',x.score??'Chưa nộp',x.submittedAt||'—',x.incidents,x.mrvySynced?'Đã gửi':'Chờ'].map((v,j)=><td key={j} className="border p-2">{v}</td>)}</tr>)}</tbody>
+          <thead><tr className="bg-slate-100">{['Mã HS','Họ tên','Lớp','Lần thi','Mã đề','Điểm','Cao nhất','Nộp lúc','Cảnh báo','MRVY'].map(h=><th key={h} className="border p-2">{h}</th>)}</tr></thead>
+          <tbody>{(report?.students||[]).map((x,i)=><tr key={i}>{[x.studentCode,x.studentName,x.className,x.attemptNo||1,x.examCode||'—',x.score??'Chưa nộp',x.bestScore??'—',x.submittedAt||'—',x.incidents,x.mrvySynced?'Đã gửi':'Chờ'].map((v,j)=><td key={j} className="border p-2">{v}</td>)}</tr>)}</tbody>
         </table></div>
       </section>
     </div>
